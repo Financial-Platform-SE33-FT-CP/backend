@@ -1,0 +1,19 @@
+[project]
+name = "ar-ap-service"
+version = "0.1.0"
+description = "Accounts Receivable / Accounts Payable Service"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]",
+    "pydantic",
+    "pydantic-settings",
+    "sqlalchemy[asyncio]",
+    "asyncpg",
+    "structlog",
+    "httpx",
+    "alembic",
+    "shared-lib",
+]
+
+[tool.setuptools.packages.find]
+where = ["src"]

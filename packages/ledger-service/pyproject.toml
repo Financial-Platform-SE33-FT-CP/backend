@@ -1,0 +1,23 @@
+[project]
+name = "ledger-service"
+version = "0.1.0"
+description = "Ledger service — double-entry bookkeeping"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]",
+    "pydantic",
+    "pydantic-settings",
+    "sqlalchemy[asyncio]",
+    "asyncpg",
+    "structlog",
+    "httpx",
+    "alembic",
+    "shared-lib",
+]
+
+[tool.uv]
+dev-dependencies = []
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"

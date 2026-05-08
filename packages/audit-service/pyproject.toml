@@ -1,0 +1,23 @@
+[project]
+name = "audit-service"
+version = "0.1.0"
+description = "Audit Service — Accounting Platform"
+requires-python = ">=3.12"
+dependencies = [
+    "fastapi[standard]>=0.115.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30.0",
+    "structlog>=24.4.0",
+    "httpx>=0.28.0",
+    "alembic>=1.14.0",
+    "shared-lib",
+]
+
+[build-system]
+requires = ["hatchling"]
+build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/audit_service"]
