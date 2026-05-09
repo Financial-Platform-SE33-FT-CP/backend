@@ -1,9 +1,8 @@
 """Auth service configuration."""
 
+from accounting_shared.config import SharedSettings
 from pydantic import Field
 from pydantic_settings import SettingsConfigDict
-
-from accounting_shared.config import SharedSettings
 
 
 class AuthSettings(SharedSettings):
@@ -20,7 +19,12 @@ class AuthSettings(SharedSettings):
 
     # Email verification
     email_verification_required: bool = Field(
-        default=True, alias="EMAIL_VERIFICATION_REQUIRED"
+        default=True,
+        alias="EMAIL_VERIFICATION_REQUIRED",
+    )
+    email_verification_token_expire_hours: int = Field(
+        default=24,
+        alias="EMAIL_VERIFICATION_TOKEN_EXPIRE_HOURS",
     )
 
     # Login rate limiting

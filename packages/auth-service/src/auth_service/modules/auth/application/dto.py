@@ -2,7 +2,7 @@
 
 from datetime import datetime
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, EmailStr
 
 
 class RegisterRequest(BaseModel):
@@ -10,7 +10,7 @@ class RegisterRequest(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    email: str
+    email: EmailStr
     password: str
     full_name: str | None = None
 
@@ -20,7 +20,7 @@ class LoginRequest(BaseModel):
 
     model_config = ConfigDict(from_attributes=True)
 
-    email: str
+    email: EmailStr
     password: str
 
 
@@ -30,8 +30,10 @@ class TokenResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     access_token: str
-    refresh_token: str
     token_type: str = "bearer"
+    expires_in: int
+    refresh_token: str | None = None
+    refresh_expires_in: int | None = None
 
 
 class VerifyEmailRequest(BaseModel):
@@ -42,8 +44,26 @@ class VerifyEmailRequest(BaseModel):
     token: str
 
 
+class RefreshTokenBody(BaseModel):
+    """DTO for refresh / logout body."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    refresh_token: str
+
+
+class CurrentUserResponse(BaseModel):
+    """Minimal profile for GET /auth/me."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    email: str
+    email_verified: bool
+
+
 class UserResponse(BaseModel):
-    """DTO for user response data."""
+    """DTO for full user response data (e.g. registration)."""
 
     model_config = ConfigDict(from_attributes=True)
 

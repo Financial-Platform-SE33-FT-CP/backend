@@ -3,15 +3,14 @@
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-from sqlalchemy.ext.asyncio import create_async_engine
-
 from accounting_shared.database import create_session_factory
 from accounting_shared.exceptions import register_exception_handlers
 from accounting_shared.logging import setup_logging
 from accounting_shared.middleware.request_id import RequestIDMiddleware
 from accounting_shared.middleware.tenant_context import TenantContextMiddleware
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+from sqlalchemy.ext.asyncio import create_async_engine
 
 from auth_service.config import AuthSettings
 from auth_service.deps import get_settings
@@ -27,11 +26,14 @@ async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     setup_logging(settings.log_level)
 
     # Create async engine and session factory
-    engine = create_async_engine(
-        settings.database_url,
-        pool_size=settings.database_pool_size,
-        max_overflow=settings.database_pool_overflow,
-    )
+    engine_kwargs: dict[str, object] = {
+        "pool_size": settings.database_pool_size,
+        "max_overflow": settings.database_pool_overflow,
+    }
+    if settings.database_url.startswith("sqlite"):
+        engine_kwargs["connect_args"] = {"check_same_thread": False}
+
+    engine = create_async_engine(settings.database_url, **engine_kwargs)
     session_factory = create_session_factory(engine)
 
     # Store on app state for dependency injection
