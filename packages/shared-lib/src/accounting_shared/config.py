@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from pydantic import AliasChoices, Field
 from pydantic_settings import BaseSettings, SettingsConfigDict
 
 
@@ -12,11 +13,15 @@ class SharedSettings(BaseSettings):
         env_file=".env",
         env_file_encoding="utf-8",
         extra="ignore",
+        populate_by_name=True,
     )
 
     # ── Application ──────────────────────────────────────────────────────────
     app_name: str = "Accounting Platform"
-    app_env: str = "development"
+    app_env: str = Field(
+        default="development",
+        validation_alias=AliasChoices("APP_ENV", "ENV"),
+    )
     debug: bool = True
 
     # ── Logging ──────────────────────────────────────────────────────────────

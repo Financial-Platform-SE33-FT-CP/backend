@@ -2,6 +2,7 @@
 
 from accounting_shared.exceptions import (
     ConflictError,
+    ServiceUnavailableError,
     UnauthorizedError,
 )
 
@@ -48,3 +49,25 @@ class InvalidTokenError(UnauthorizedError):
 
     def __init__(self, message: str = "Invalid or expired token.") -> None:
         super().__init__(detail=message)
+
+
+class VerificationCodeError(UnauthorizedError):
+    """Invalid, expired, exhausted, or unknown verification code (generic detail)."""
+
+    def __init__(
+        self,
+        message: str = "Invalid or expired verification code.",
+    ) -> None:
+        super().__init__(detail=message)
+
+
+class VerificationEmailFailedError(ServiceUnavailableError):
+    """The account was created but SMTP verification mail could not be sent."""
+
+    def __init__(self) -> None:
+        super().__init__(
+            detail=(
+                "Registration created, but verification email could not be sent. "
+                "Please try again later."
+            ),
+        )

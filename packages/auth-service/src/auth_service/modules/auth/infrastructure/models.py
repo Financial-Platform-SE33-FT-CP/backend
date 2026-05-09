@@ -45,7 +45,7 @@ class UserModel(Base):
 
 
 class VerificationTokenModel(Base):
-    """SQLAlchemy model for email verification tokens (hashed only)."""
+    """ORM row for email verification codes (hashed only; DB column remains token_hash)."""
 
     __tablename__ = "email_verification_tokens"
 
@@ -55,9 +55,12 @@ class VerificationTokenModel(Base):
         ForeignKey("users.id", ondelete="CASCADE"),
         nullable=False,
     )
-    token_hash: Mapped[str] = mapped_column(String(64), unique=True, nullable=False, index=True)
+    code_hash: Mapped[str] = mapped_column("token_hash", String(64), nullable=False, index=True)
     expires_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
     used_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    attempt_count: Mapped[int] = mapped_column(Integer, nullable=False, default=0)
+    last_sent_at: Mapped[datetime | None] = mapped_column(DateTime(timezone=True), nullable=True)
+    purpose: Mapped[str] = mapped_column(String(64), nullable=False, default="email_verification")
     created_at: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         default=lambda: datetime.now(UTC),

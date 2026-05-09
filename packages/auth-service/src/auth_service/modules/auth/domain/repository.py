@@ -9,9 +9,9 @@ from datetime import datetime
 from accounting_shared.types import UserId
 
 from auth_service.modules.auth.domain.entities import (
+    EmailVerificationCode,
     StoredRefreshToken,
     User,
-    VerificationToken,
 )
 
 
@@ -49,26 +49,52 @@ class UserRepository(ABC):
         ...
 
     @abstractmethod
-    async def save_verification_token(
+    async def save_email_verification_code(
         self,
         user_id: UserId,
-        token_hash: str,
+        code_hash: str,
         expires_at: datetime,
+        *,
+        last_sent_at: datetime,
+        purpose: str = "email_verification",
     ) -> None:
-        """Persist a new email verification token hash."""
+        """Persist a new email verification code hash."""
         ...
 
     @abstractmethod
-    async def find_verification_token_by_hash(
+    async def find_latest_unused_verification_code_for_user(
         self,
-        token_hash: str,
-    ) -> VerificationToken | None:
-        """Look up a verification token row by HMAC digest."""
+        user_id: UserId,
+    ) -> EmailVerificationCode | None:
+        """Return the newest unused verification code row for this user."""
         ...
 
     @abstractmethod
-    async def mark_verification_token_used(self, token_id: uuid.UUID) -> None:
-        """Mark a verification token as consumed."""
+    async def find_latest_verification_code_row_for_user(
+        self,
+        user_id: UserId,
+    ) -> EmailVerificationCode | None:
+        """Return the newest verification row (used or not) for cooldown checks."""
+        ...
+
+    @abstractmethod
+    async def increment_verification_code_attempts(self, code_id: uuid.UUID) -> None:
+        """Increment wrong-code attempt counter."""
+        ...
+
+    @abstractmethod
+    async def mark_verification_code_used(self, code_id: uuid.UUID) -> None:
+        """Mark a verification code as consumed."""
+        ...
+
+    @abstractmethod
+    async def mark_all_pending_verification_codes_used_for_user(
+        self,
+        user_id: UserId,
+        *,
+        except_code_id: uuid.UUID | None = None,
+    ) -> None:
+        """Invalidate other pending codes (e.g. after success or before new resend)."""
         ...
 
     @abstractmethod

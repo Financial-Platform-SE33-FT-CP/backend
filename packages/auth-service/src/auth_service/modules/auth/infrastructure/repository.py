@@ -6,13 +6,13 @@ import uuid
 from datetime import UTC, datetime
 
 from accounting_shared.types import UserId
-from sqlalchemy import select
+from sqlalchemy import select, update
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from auth_service.modules.auth.domain.entities import (
+    EmailVerificationCode,
     StoredRefreshToken,
     User,
-    VerificationToken,
 )
 from auth_service.modules.auth.domain.repository import UserRepository
 from auth_service.modules.auth.infrastructure.models import (
@@ -99,51 +99,100 @@ class SqlAlchemyUserRepository(UserRepository):
         self._session.delete(model)
         await self._session.flush()
 
-    async def save_verification_token(
+    async def save_email_verification_code(
         self,
         user_id: UserId,
-        token_hash: str,
+        code_hash: str,
         expires_at: datetime,
+        *,
+        last_sent_at: datetime,
+        purpose: str = "email_verification",
     ) -> None:
-        """Persist a new email verification token hash."""
+        """Persist a new email verification code hash."""
         model = VerificationTokenModel(
             user_id=user_id,
-            token_hash=token_hash,
+            code_hash=code_hash,
             expires_at=expires_at,
             used_at=None,
+            attempt_count=0,
+            last_sent_at=last_sent_at,
+            purpose=purpose,
         )
         self._session.add(model)
         await self._session.flush()
 
-    async def find_verification_token_by_hash(
+    async def find_latest_unused_verification_code_for_user(
         self,
-        token_hash: str,
-    ) -> VerificationToken | None:
-        """Look up a verification token row by HMAC digest."""
+        user_id: UserId,
+    ) -> EmailVerificationCode | None:
+        """Return the newest unused verification code row for this user."""
         result = await self._session.execute(
-            select(VerificationTokenModel).where(VerificationTokenModel.token_hash == token_hash)
+            select(VerificationTokenModel)
+            .where(
+                VerificationTokenModel.user_id == user_id,
+                VerificationTokenModel.used_at.is_(None),
+            )
+            .order_by(VerificationTokenModel.created_at.desc())
+            .limit(1)
+        )
+        model = result.scalars().first()
+        return self._verification_to_domain(model) if model else None
+
+    async def find_latest_verification_code_row_for_user(
+        self,
+        user_id: UserId,
+    ) -> EmailVerificationCode | None:
+        """Return the newest verification row for cooldown."""
+        result = await self._session.execute(
+            select(VerificationTokenModel)
+            .where(VerificationTokenModel.user_id == user_id)
+            .order_by(VerificationTokenModel.created_at.desc())
+            .limit(1)
+        )
+        model = result.scalars().first()
+        return self._verification_to_domain(model) if model else None
+
+    async def increment_verification_code_attempts(self, code_id: uuid.UUID) -> None:
+        """Increment wrong-code attempt counter."""
+        result = await self._session.execute(
+            select(VerificationTokenModel).where(VerificationTokenModel.id == code_id)
         )
         model = result.scalars().first()
         if model is None:
-            return None
-        return VerificationToken(
-            id=model.id,
-            user_id=UserId(model.user_id),
-            token_hash=model.token_hash,
-            expires_at=_as_utc(model.expires_at),  # type: ignore[arg-type]
-            used_at=_as_utc(model.used_at),
-            created_at=_as_utc(model.created_at),  # type: ignore[arg-type]
-        )
+            return
+        model.attempt_count += 1
+        await self._session.flush()
 
-    async def mark_verification_token_used(self, token_id: uuid.UUID) -> None:
-        """Mark a verification token as consumed."""
+    async def mark_verification_code_used(self, code_id: uuid.UUID) -> None:
+        """Mark a verification code as consumed."""
         result = await self._session.execute(
-            select(VerificationTokenModel).where(VerificationTokenModel.id == token_id)
+            select(VerificationTokenModel).where(VerificationTokenModel.id == code_id)
         )
         model = result.scalars().first()
         if model is None:
             return
         model.used_at = datetime.now(UTC)
+        await self._session.flush()
+
+    async def mark_all_pending_verification_codes_used_for_user(
+        self,
+        user_id: UserId,
+        *,
+        except_code_id: uuid.UUID | None = None,
+    ) -> None:
+        """Invalidate pending codes."""
+        now = datetime.now(UTC)
+        stmt = (
+            update(VerificationTokenModel)
+            .where(
+                VerificationTokenModel.user_id == user_id,
+                VerificationTokenModel.used_at.is_(None),
+            )
+            .values(used_at=now)
+        )
+        if except_code_id is not None:
+            stmt = stmt.where(VerificationTokenModel.id != except_code_id)
+        await self._session.execute(stmt)
         await self._session.flush()
 
     async def mark_email_verified(self, user_id: UserId) -> None:
@@ -219,6 +268,20 @@ class SqlAlchemyUserRepository(UserRepository):
             return
         model.revoked_at = datetime.now(UTC)
         await self._session.flush()
+
+    @staticmethod
+    def _verification_to_domain(model: VerificationTokenModel) -> EmailVerificationCode:
+        return EmailVerificationCode(
+            id=model.id,
+            user_id=UserId(model.user_id),
+            code_hash=model.code_hash,
+            expires_at=_as_utc(model.expires_at),  # type: ignore[arg-type]
+            attempt_count=model.attempt_count,
+            used_at=_as_utc(model.used_at),
+            last_sent_at=_as_utc(model.last_sent_at),
+            purpose=model.purpose,
+            created_at=_as_utc(model.created_at),  # type: ignore[arg-type]
+        )
 
     @staticmethod
     def _to_domain(model: UserModel) -> User:

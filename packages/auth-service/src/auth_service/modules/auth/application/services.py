@@ -18,8 +18,9 @@ from auth_service.modules.auth.application.dto import (
     CurrentUserResponse,
     LoginRequest,
     RegisterRequest,
+    RegisterResponse,
+    RegisterUserSnippet,
     TokenResponse,
-    UserResponse,
 )
 from auth_service.modules.auth.domain.entities import User
 from auth_service.modules.auth.domain.exceptions import (
@@ -28,18 +29,27 @@ from auth_service.modules.auth.domain.exceptions import (
     EmailNotVerifiedError,
     InvalidCredentialsError,
     InvalidTokenError,
+    VerificationCodeError,
+    VerificationEmailFailedError,
 )
 from auth_service.modules.auth.domain.repository import UserRepository
 from auth_service.modules.auth.domain.value_objects import Email
-from auth_service.security.token_hash import hash_opaque_token
+from auth_service.modules.auth.infrastructure.email_service import EmailService
+from auth_service.security.token_hash import (
+    hash_email_verification_code,
+    hash_opaque_token,
+)
 
 logger = structlog.get_logger(__name__)
 
-# Timing normalization for absent accounts (stable bcrypt check cost).
 _DUMMY_PASSWORD_HASH = bcrypt.hashpw(
     b"__auth_dummy_password__",
     bcrypt.gensalt(rounds=4),
 ).decode("utf-8")
+
+
+def _generate_numeric_verification_code(length: int) -> str:
+    return "".join(secrets.choice("0123456789") for _ in range(length))
 
 
 def _validate_password_strength(password: str) -> None:
@@ -55,6 +65,10 @@ def _validate_password_strength(password: str) -> None:
         raise ValidationError("Password must contain at least one digit.")
 
 
+def _is_production(settings: AuthSettings) -> bool:
+    return settings.app_env.strip().lower() in ("production", "prod")
+
+
 class AuthService:
     """Application service for authentication operations."""
 
@@ -62,23 +76,22 @@ class AuthService:
         self,
         settings: AuthSettings,
         user_repository: UserRepository,
+        email_service: EmailService,
     ) -> None:
         self._settings = settings
         self._user_repo = user_repository
+        self._email_service = email_service
 
     @staticmethod
     def _hash_password(password: str, rounds: int = 12) -> str:
-        """Hash a plain-text password using bcrypt."""
         salt = bcrypt.gensalt(rounds=rounds)
         return bcrypt.hashpw(password.encode("utf-8"), salt).decode("utf-8")
 
     @staticmethod
     def _verify_password(plain: str, hashed: str) -> bool:
-        """Verify a plain-text password against a bcrypt hash."""
         return bcrypt.checkpw(plain.encode("utf-8"), hashed.encode("utf-8"))
 
     def _sign_access_token(self, user_id: str, email: str) -> tuple[str, datetime]:
-        """Return JWT access token and absolute expiry (UTC)."""
         now = datetime.now(UTC)
         expire = now + timedelta(
             minutes=self._settings.jwt_access_token_expire_minutes,
@@ -98,7 +111,6 @@ class AuthService:
         return token, expire
 
     def _decode_access_token(self, token: str) -> dict[str, object]:
-        """Decode and validate an access JWT."""
         try:
             payload = jwt.decode(
                 token,
@@ -109,7 +121,14 @@ class AuthService:
             raise InvalidTokenError("Token is invalid or expired.") from exc
         return payload
 
-    async def register(self, dto: RegisterRequest) -> UserResponse:
+    def _validate_verification_code_format(self, code: str) -> str:
+        normalized = code.strip()
+        length = self._settings.email_verify_code_length
+        if len(normalized) != length or not normalized.isdigit():
+            raise VerificationCodeError()
+        return normalized
+
+    async def register(self, dto: RegisterRequest) -> RegisterResponse:
         """Register a new user account."""
         email = Email(str(dto.email))
         _validate_password_strength(dto.password)
@@ -137,29 +156,62 @@ class AuthService:
 
         persisted = await self._user_repo.add(user)
 
+        raw_code: str | None = None
         if self._settings.email_verification_required:
-            raw_token = secrets.token_urlsafe(32)
-            token_hash = hash_opaque_token(self._settings.jwt_secret, raw_token)
-            expires_at = now + timedelta(
-                hours=self._settings.email_verification_token_expire_hours,
+            raw_code = _generate_numeric_verification_code(
+                self._settings.email_verify_code_length,
             )
-            await self._user_repo.save_verification_token(
+            code_hash = hash_email_verification_code(
+                self._settings.jwt_secret,
                 persisted.id,
-                token_hash,
-                expires_at,
+                raw_code,
             )
-            if self._settings.debug:
+            expires_at = now + timedelta(
+                minutes=self._settings.email_verify_code_expire_minutes,
+            )
+            await self._user_repo.save_email_verification_code(
+                persisted.id,
+                code_hash,
+                expires_at,
+                last_sent_at=now,
+            )
+            await self._user_repo.commit()
+            try:
+                await self._email_service.send_verification_code_email(
+                    persisted.email,
+                    raw_code,
+                    self._settings.email_verify_code_expire_minutes,
+                )
+            except Exception as exc:
+                logger.exception("verification_email_send_failed", email=persisted.email)
+                raise VerificationEmailFailedError() from exc
+
+            if not _is_production(self._settings):
                 logger.info(
-                    "email_verification_token_issued",
+                    "verification_code_issued_dev",
                     user_id=str(persisted.id),
                     email=persisted.email,
-                    verification_token=raw_token,
                 )
 
-        return self._user_to_full_response(persisted)
+        prod = _is_production(self._settings)
+        message = (
+            "Registration successful."
+            if not self._settings.email_verification_required
+            else "Registration successful. Please check your email for the verification code."
+        )
+
+        return RegisterResponse(
+            message=message,
+            user=RegisterUserSnippet(
+                id=str(persisted.id),
+                email=persisted.email,
+                full_name=persisted.full_name,
+                is_email_verified=persisted.email_verified,
+            ),
+            verification_code=None if prod or raw_code is None else raw_code,
+        )
 
     async def login(self, dto: LoginRequest) -> TokenResponse:
-        """Authenticate a user and return tokens."""
         email = Email(str(dto.email))
         now = datetime.now(UTC)
 
@@ -168,7 +220,6 @@ class AuthService:
             self._verify_password(dto.password, _DUMMY_PASSWORD_HASH)
             raise InvalidCredentialsError()
 
-        # Expired lock clears automatically.
         if user.locked_until is not None and user.locked_until <= now:
             await self._user_repo.update_login_security(
                 user.id,
@@ -233,25 +284,92 @@ class AuthService:
             refresh_expires_in=refresh_expires_in,
         )
 
-    async def verify_email(self, raw_token: str) -> None:
-        """Verify a user's email using a verification token."""
+    async def verify_email_with_code(self, email: str, code: str) -> str:
+        """Verify email using numeric code. Returns success message or raises VerificationCodeError."""
+        em = Email(str(email))
+        normalized = self._validate_verification_code_format(code)
+        user = await self._user_repo.get_by_email(em.value)
+        if user is None or user.email_verified:
+            raise VerificationCodeError()
+
+        row = await self._user_repo.find_latest_unused_verification_code_for_user(user.id)
         now = datetime.now(UTC)
-        token_hash = hash_opaque_token(self._settings.jwt_secret, raw_token)
-        row = await self._user_repo.find_verification_token_by_hash(token_hash)
         if row is None:
-            raise InvalidTokenError()
-
-        if row.used_at is not None:
-            raise InvalidTokenError("Verification token has already been used.")
-
+            raise VerificationCodeError()
+        if row.attempt_count >= self._settings.email_verify_code_max_attempts:
+            raise VerificationCodeError()
         if row.expires_at < now:
-            raise InvalidTokenError("Verification token has expired.")
+            raise VerificationCodeError()
 
-        await self._user_repo.mark_email_verified(row.user_id)
-        await self._user_repo.mark_verification_token_used(row.id)
+        if (
+            hash_email_verification_code(
+                self._settings.jwt_secret,
+                user.id,
+                normalized,
+            )
+            != row.code_hash
+        ):
+            await self._user_repo.increment_verification_code_attempts(row.id)
+            await self._user_repo.commit()
+            raise VerificationCodeError()
+
+        await self._user_repo.mark_email_verified(user.id)
+        await self._user_repo.mark_verification_code_used(row.id)
+        await self._user_repo.mark_all_pending_verification_codes_used_for_user(user.id)
+
+        return "Email verified successfully. You can now log in."
+
+    RESEND_VERIFICATION_GENERIC_MESSAGE = (
+        "If the account exists and is not verified, a new verification code has been sent."
+    )
+
+    async def resend_verification_code(self, email: str) -> str:
+        """Resend code with generic response and cooldown (anti-enumeration)."""
+        try:
+            em = Email(str(email))
+        except ValidationError:
+            return self.RESEND_VERIFICATION_GENERIC_MESSAGE
+
+        user = await self._user_repo.get_by_email(em.value)
+        if user is None or user.email_verified:
+            return self.RESEND_VERIFICATION_GENERIC_MESSAGE
+
+        now = datetime.now(UTC)
+        latest = await self._user_repo.find_latest_verification_code_row_for_user(user.id)
+        if (
+            latest
+            and latest.last_sent_at is not None
+            and (now - latest.last_sent_at).total_seconds()
+            < self._settings.email_verify_code_resend_cooldown_seconds
+        ):
+            return self.RESEND_VERIFICATION_GENERIC_MESSAGE
+
+        await self._user_repo.mark_all_pending_verification_codes_used_for_user(user.id)
+        raw = _generate_numeric_verification_code(self._settings.email_verify_code_length)
+        code_hash = hash_email_verification_code(
+            self._settings.jwt_secret,
+            user.id,
+            raw,
+        )
+        expires_at = now + timedelta(minutes=self._settings.email_verify_code_expire_minutes)
+        await self._user_repo.save_email_verification_code(
+            user.id,
+            code_hash,
+            expires_at,
+            last_sent_at=now,
+        )
+        await self._user_repo.commit()
+        try:
+            await self._email_service.send_verification_code_email(
+                user.email,
+                raw,
+                self._settings.email_verify_code_expire_minutes,
+            )
+        except Exception:
+            logger.exception("resend_verification_email_failed", email=user.email)
+        return self.RESEND_VERIFICATION_GENERIC_MESSAGE
 
     async def refresh_access_token(self, raw_refresh: str) -> TokenResponse:
-        """Issue a new access token using a stored refresh token."""
         now = datetime.now(UTC)
         token_hash = hash_opaque_token(self._settings.jwt_secret, raw_refresh)
         row = await self._user_repo.find_refresh_token_by_hash(token_hash)
@@ -282,7 +400,6 @@ class AuthService:
         )
 
     async def logout(self, raw_refresh: str) -> None:
-        """Revoke a refresh token if present."""
         token_hash = hash_opaque_token(self._settings.jwt_secret, raw_refresh)
         row = await self._user_repo.find_refresh_token_by_hash(token_hash)
         if row is None:
@@ -290,7 +407,6 @@ class AuthService:
         await self._user_repo.revoke_refresh_token(row.id)
 
     async def get_current_user(self, access_token: str) -> CurrentUserResponse:
-        """Return the current user from a valid access token."""
         payload = self._decode_access_token(access_token)
 
         if payload.get("type") != "access":
@@ -314,16 +430,4 @@ class AuthService:
         )
 
     async def verify_access_token_for_gateway(self, access_token: str) -> CurrentUserResponse:
-        """Validate JWT for inter-service checks (same rules as /me)."""
         return await self.get_current_user(access_token)
-
-    def _user_to_full_response(self, user: User) -> UserResponse:
-        """Convert a User entity to a registration/profile DTO."""
-        return UserResponse(
-            id=str(user.id),
-            email=user.email,
-            full_name=user.full_name,
-            email_verified=user.email_verified,
-            is_active=user.is_active,
-            created_at=user.created_at,
-        )

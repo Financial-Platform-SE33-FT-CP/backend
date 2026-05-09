@@ -12,6 +12,9 @@ uv.lock
 # Environment
 .env
 
+# Local SQLite databases (dev)
+packages/auth-service/*.sqlite
+
 # IDE
 .vscode/
 .idea/

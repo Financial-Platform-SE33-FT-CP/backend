@@ -26,14 +26,17 @@ class User:
 
 
 @dataclass
-class VerificationToken:
-    """Persisted email verification token metadata (no raw token)."""
+class EmailVerificationCode:
+    """Persisted email verification code metadata (only hash stored; column is token_hash in DB)."""
 
     id: uuid.UUID
     user_id: UserId
-    token_hash: str
+    code_hash: str
     expires_at: datetime
+    attempt_count: int
     used_at: datetime | None = None
+    last_sent_at: datetime | None = None
+    purpose: str = "email_verification"
     created_at: datetime = field(default_factory=lambda: datetime.now(UTC))
 
 

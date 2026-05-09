@@ -5,10 +5,10 @@ import os
 from logging.config import fileConfig
 from pathlib import Path
 
-from alembic import context
 from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine
 
+from alembic import context
 from auth_service.modules.auth.infrastructure.models import Base
 
 # Alembic Config object

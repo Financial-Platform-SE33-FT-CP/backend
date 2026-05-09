@@ -41,12 +41,27 @@ class LoginRequestSchema(BaseModel):
     password: str = Field(..., description="User password")
 
 
-class VerifyEmailRequestSchema(BaseModel):
-    """Request schema for email verification."""
+class VerifyEmailCodeRequestSchema(BaseModel):
+    """Request schema for verifying email with a numeric code."""
 
     model_config = ConfigDict(from_attributes=True)
 
-    token: str = Field(..., min_length=8, description="Opaque verification token")
+    email: EmailStr = Field(..., description="User email address")
+    code: str = Field(
+        ...,
+        min_length=4,
+        max_length=12,
+        pattern=r"^[0-9]+$",
+        description="Numeric verification code from email",
+    )
+
+
+class ResendVerificationCodeRequestSchema(BaseModel):
+    """Request schema for resending a verification code."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    email: EmailStr = Field(..., description="User email address")
 
 
 class RefreshTokenRequestSchema(BaseModel):
@@ -89,6 +104,38 @@ class UserResponseSchema(BaseModel):
     email_verified: bool = Field(..., description="Whether email is verified")
     is_active: bool = Field(..., description="Whether account is active")
     created_at: datetime = Field(..., description="Account creation timestamp")
+
+
+class RegisterUserSchema(BaseModel):
+    """User payload returned from POST /auth/register."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str = Field(..., description="User unique identifier")
+    email: str = Field(..., description="User email address")
+    full_name: str | None = Field(None, description="User display name")
+    is_email_verified: bool = Field(..., description="Whether email is verified")
+
+
+class RegisterResponseSchema(BaseModel):
+    """Response schema for user registration."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    message: str = Field(..., description="Result message for the client")
+    user: RegisterUserSchema
+    verification_code: str | None = Field(
+        default=None,
+        description="Raw code for non-production testing only (omitted in production)",
+    )
+
+
+class MessageResponseSchema(BaseModel):
+    """Generic success-style message."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    message: str = Field(..., description="Informational message")
 
 
 class CurrentUserResponseSchema(BaseModel):

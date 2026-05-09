@@ -12,6 +12,7 @@ from auth_service.config import AuthSettings
 from auth_service.modules.auth.application.services import AuthService
 from auth_service.modules.auth.domain.exceptions import InvalidTokenError
 from auth_service.modules.auth.domain.repository import UserRepository
+from auth_service.modules.auth.infrastructure.email_service import EmailService
 from auth_service.modules.auth.infrastructure.repository import SqlAlchemyUserRepository
 
 security_scheme = HTTPBearer(auto_error=False)
@@ -37,14 +38,23 @@ async def get_user_repository(
     return SqlAlchemyUserRepository(session)
 
 
+def get_email_service(
+    settings: AuthSettings = Depends(get_settings),
+) -> EmailService:
+    """Return an email sender configured from settings."""
+    return EmailService(settings)
+
+
 async def get_auth_service(
     session: AsyncSession = Depends(get_async_session),
+    email_service: EmailService = Depends(get_email_service),
 ) -> AuthService:
     """Return an AuthService instance."""
     settings = get_settings()
     return AuthService(
         settings=settings,
         user_repository=SqlAlchemyUserRepository(session),
+        email_service=email_service,
     )
 
 

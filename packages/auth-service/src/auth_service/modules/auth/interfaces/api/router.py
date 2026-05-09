@@ -10,18 +10,22 @@ from auth_service.modules.auth.application.dto import (
     LoginRequest,
     RefreshTokenBody,
     RegisterRequest,
-    VerifyEmailRequest,
+    ResendVerificationCodeRequest,
+    VerifyEmailCodeRequest,
 )
 from auth_service.modules.auth.application.services import AuthService
 from auth_service.modules.auth.interfaces.api.schemas import (
     CurrentUserResponseSchema,
     ErrorResponseSchema,
     LoginRequestSchema,
+    MessageResponseSchema,
     RefreshTokenRequestSchema,
     RegisterRequestSchema,
+    RegisterResponseSchema,
+    RegisterUserSchema,
+    ResendVerificationCodeRequestSchema,
     TokenResponseSchema,
-    UserResponseSchema,
-    VerifyEmailRequestSchema,
+    VerifyEmailCodeRequestSchema,
 )
 
 router = APIRouter(tags=["auth"])
@@ -29,17 +33,19 @@ router = APIRouter(tags=["auth"])
 
 @router.post(
     "/register",
-    response_model=UserResponseSchema,
+    response_model=RegisterResponseSchema,
+    response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
     responses={
         409: {"model": ErrorResponseSchema, "description": "Email already exists"},
         422: {"model": ErrorResponseSchema, "description": "Validation error"},
+        503: {"model": ErrorResponseSchema, "description": "Verification email failed to send"},
     },
 )
 async def register(
     body: RegisterRequestSchema,
     auth_service: AuthService = Depends(get_auth_service),
-) -> UserResponseSchema:
+) -> RegisterResponseSchema:
     """Register a new user account."""
     dto = RegisterRequest(
         email=body.email,
@@ -47,13 +53,15 @@ async def register(
         full_name=body.full_name,
     )
     result = await auth_service.register(dto)
-    return UserResponseSchema(
-        id=result.id,
-        email=result.email,
-        full_name=result.full_name,
-        email_verified=result.email_verified,
-        is_active=result.is_active,
-        created_at=result.created_at,
+    return RegisterResponseSchema(
+        message=result.message,
+        user=RegisterUserSchema(
+            id=result.user.id,
+            email=result.user.email,
+            full_name=result.user.full_name,
+            is_email_verified=result.user.is_email_verified,
+        ),
+        verification_code=result.verification_code,
     )
 
 
@@ -82,20 +90,38 @@ async def login(
 
 
 @router.post(
-    "/verify-email",
-    status_code=status.HTTP_204_NO_CONTENT,
+    "/verify-email-code",
+    response_model=MessageResponseSchema,
     responses={
-        401: {"model": ErrorResponseSchema, "description": "Invalid or expired token"},
+        401: {"model": ErrorResponseSchema, "description": "Invalid or expired code"},
         422: {"model": ErrorResponseSchema, "description": "Validation error"},
     },
 )
-async def verify_email(
-    body: VerifyEmailRequestSchema,
+async def verify_email_code(
+    body: VerifyEmailCodeRequestSchema,
     auth_service: AuthService = Depends(get_auth_service),
-) -> None:
-    """Verify a user's email address using a verification token."""
-    dto = VerifyEmailRequest(token=body.token)
-    await auth_service.verify_email(dto.token)
+) -> MessageResponseSchema:
+    """Verify email using the numeric code from email."""
+    dto = VerifyEmailCodeRequest(email=body.email, code=body.code)
+    msg = await auth_service.verify_email_with_code(str(dto.email), dto.code)
+    return MessageResponseSchema(message=msg)
+
+
+@router.post(
+    "/resend-verification-code",
+    response_model=MessageResponseSchema,
+    responses={
+        422: {"model": ErrorResponseSchema, "description": "Validation error"},
+    },
+)
+async def resend_verification_code(
+    body: ResendVerificationCodeRequestSchema,
+    auth_service: AuthService = Depends(get_auth_service),
+) -> MessageResponseSchema:
+    """Resend verification code (generic response; anti-enumeration)."""
+    dto = ResendVerificationCodeRequest(email=body.email)
+    msg = await auth_service.resend_verification_code(str(dto.email))
+    return MessageResponseSchema(message=msg)
 
 
 @router.post(

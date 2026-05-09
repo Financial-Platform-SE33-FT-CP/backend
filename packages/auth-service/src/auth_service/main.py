@@ -8,12 +8,14 @@ from accounting_shared.exceptions import register_exception_handlers
 from accounting_shared.logging import setup_logging
 from accounting_shared.middleware.request_id import RequestIDMiddleware
 from accounting_shared.middleware.tenant_context import TenantContextMiddleware
-from fastapi import FastAPI
+from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
+from fastapi.responses import JSONResponse
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from auth_service.config import AuthSettings
 from auth_service.deps import get_settings
+from auth_service.modules.auth.domain.exceptions import VerificationEmailFailedError
 from auth_service.modules.auth.interfaces.api.router import router as auth_router
 
 
@@ -70,6 +72,16 @@ def create_app() -> FastAPI:
 
     # Register shared domain exception handlers
     register_exception_handlers(app)
+
+    @app.exception_handler(VerificationEmailFailedError)
+    async def verification_email_failed_handler(
+        _request: Request,
+        exc: VerificationEmailFailedError,
+    ) -> JSONResponse:
+        return JSONResponse(
+            status_code=exc.status_code,
+            content={"detail": exc.detail},
+        )
 
     # Health check
     @app.get("/health")
