@@ -1,15 +1,34 @@
 """Alembic environment configuration for async migrations."""
 
 import asyncio
+import os
 from logging.config import fileConfig
+from pathlib import Path
 
 from alembic import context
+from dotenv import load_dotenv
 from sqlalchemy.ext.asyncio import create_async_engine
 
 from auth_service.modules.auth.infrastructure.models import Base
 
 # Alembic Config object
 config = context.config
+
+_REPO_ROOT = Path(__file__).resolve().parents[3]
+
+
+def _database_url() -> str:
+    """Prefer DATABASE_URL from backend/.env, fall back to alembic.ini."""
+    load_dotenv(_REPO_ROOT / ".env")
+    url = os.getenv("DATABASE_URL")
+    if url:
+        return url
+    ini_url = config.get_main_option("sqlalchemy.url")
+    if not ini_url:
+        msg = "Set DATABASE_URL or sqlalchemy.url in alembic.ini"
+        raise RuntimeError(msg)
+    return ini_url
+
 
 # Set up logging
 if config.config_file_name is not None:
@@ -26,7 +45,7 @@ def run_migrations_offline() -> None:
     Calls to context.execute() here emit the given string to the
     script output.
     """
-    url = config.get_main_option("sqlalchemy.url")
+    url = _database_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
@@ -47,7 +66,7 @@ def do_run_migrations(connection):
 
 async def run_async_migrations() -> None:
     """Create an async engine and run migrations."""
-    url = config.get_main_option("sqlalchemy.url")
+    url = _database_url()
     engine = create_async_engine(url)
 
     async with engine.connect() as connection:
