@@ -3,17 +3,19 @@
 from collections.abc import AsyncGenerator
 from functools import lru_cache
 
-from fastapi import Request
+from accounting_shared.database import get_session
+from fastapi import Depends, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from sqlalchemy.ext.asyncio import AsyncSession
 
-from accounting_shared.database import get_session
-
 from auth_service.config import AuthSettings
-from auth_service.modules.auth.domain.repository import UserRepository
-from auth_service.modules.auth.infrastructure.repository import (
-    SqlAlchemyUserRepository,
-)
 from auth_service.modules.auth.application.services import AuthService
+from auth_service.modules.auth.domain.exceptions import InvalidTokenError
+from auth_service.modules.auth.domain.repository import UserRepository
+from auth_service.modules.auth.infrastructure.email_service import EmailService
+from auth_service.modules.auth.infrastructure.repository import SqlAlchemyUserRepository
+
+security_scheme = HTTPBearer(auto_error=False)
 
 
 @lru_cache
@@ -30,16 +32,36 @@ async def get_async_session(request: Request) -> AsyncGenerator[AsyncSession, No
 
 
 async def get_user_repository(
-    session: AsyncSession,
+    session: AsyncSession = Depends(get_async_session),
 ) -> UserRepository:
     """Return a user repository instance."""
     return SqlAlchemyUserRepository(session)
 
 
+def get_email_service(
+    settings: AuthSettings = Depends(get_settings),
+) -> EmailService:
+    """Return an email sender configured from settings."""
+    return EmailService(settings)
+
+
 async def get_auth_service(
-    session: AsyncSession,
+    session: AsyncSession = Depends(get_async_session),
+    email_service: EmailService = Depends(get_email_service),
 ) -> AuthService:
     """Return an AuthService instance."""
     settings = get_settings()
-    user_repo = SqlAlchemyUserRepository(session)
-    return AuthService(settings=settings, user_repository=user_repo)
+    return AuthService(
+        settings=settings,
+        user_repository=SqlAlchemyUserRepository(session),
+        email_service=email_service,
+    )
+
+
+async def get_access_token_value(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security_scheme),
+) -> str:
+    """Extract Bearer access token or raise InvalidTokenError."""
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise InvalidTokenError("Missing or invalid bearer token.")
+    return credentials.credentials

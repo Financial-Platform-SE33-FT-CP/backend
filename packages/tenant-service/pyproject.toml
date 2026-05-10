@@ -12,7 +12,7 @@ dependencies = [
     "structlog>=24.4.0",
     "httpx>=0.28.0",
     "alembic>=1.14.0",
-    "shared-lib = { workspace = true }",
+    "shared-lib",
 ]
 
 [build-system]
