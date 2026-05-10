@@ -10,8 +10,15 @@ from sqlalchemy.ext.asyncio import (
     async_sessionmaker,
     create_async_engine,
 )
+from sqlalchemy.orm import DeclarativeBase
 
 from accounting_shared.config import SharedSettings
+
+
+class Base(DeclarativeBase):
+    """Shared SQLAlchemy declarative base for cross-service ORM models."""
+
+    pass
 
 
 def create_engine(settings: SharedSettings) -> AsyncEngine:

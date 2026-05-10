@@ -1,6 +1,6 @@
 from __future__ import annotations
 
-from accounting_shared import SharedSettings
+from accounting_shared.config import SharedSettings
 
 
 class TenantSettings(SharedSettings):
