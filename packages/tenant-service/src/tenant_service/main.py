@@ -13,6 +13,7 @@ from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
 
 from .config import TenantSettings
+from .modules.tenants.interfaces.api.internal_router import router as internal_router
 from .modules.tenants.interfaces.api.router import router as tenants_router
 
 logger = structlog.get_logger(__name__)
@@ -53,6 +54,7 @@ def create_app() -> FastAPI:
     app.add_middleware(TenantContextMiddleware)
 
     app.include_router(tenants_router)
+    app.include_router(internal_router)
 
     @app.exception_handler(Exception)
     async def unhandled_exception_handler(

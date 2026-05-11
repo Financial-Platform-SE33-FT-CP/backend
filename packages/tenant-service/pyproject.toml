@@ -13,12 +13,14 @@ dependencies = [
     "python-jose[cryptography]>=3.3.0",
     "alembic>=1.14.0",
     "shared-lib",
+    "auth-service",
     "coa-service",
     "audit-service",
 ]
 
 [tool.uv.sources]
 shared-lib = { workspace = true }
+auth-service = { workspace = true }
 coa-service = { workspace = true }
 audit-service = { workspace = true }
 
@@ -39,4 +41,5 @@ select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 [tool.ruff.lint.per-file-ignores]
 "src/**/deps.py" = ["B008"]
 "src/**/interfaces/api/router.py" = ["B008"]
+"src/**/interfaces/api/internal_router.py" = ["B008"]
 "tests/**" = ["E501", "I001", "PLC0415"]

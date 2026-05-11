@@ -148,7 +148,7 @@ async def test_create_tenant_success(
     assert r.status_code == 201, r.text
     body = r.json()
     assert body["name"] == "Acme Pte Ltd"
-    assert body["role"] == "owner"
+    assert body["role"] == "OWNER"
     assert body["base_currency"] == "SGD"
     tid = uuid.UUID(body["id"])
 
@@ -164,7 +164,7 @@ async def test_create_tenant_success(
                 )
             )
         ).scalar_one()
-        assert tu.role == "owner"
+        assert tu.role == "OWNER"
         coa_count = (
             await s.execute(select(AccountModel).where(AccountModel.tenant_id == tid))
         ).scalars().all()
@@ -288,7 +288,7 @@ async def test_get_tenant_isolation(
         f"/api/v1/tenants/{tenant_id}",
         headers={"Authorization": f"Bearer {_encode_token(user_b)}"},
     )
-    assert r403.status_code == 404
+    assert r403.status_code == 403
 
 
 @pytest.mark.asyncio
@@ -320,7 +320,7 @@ async def test_get_coa_isolation(
         f"/api/v1/tenants/{tenant_id}/coa",
         headers={"Authorization": f"Bearer {_encode_token(user_b)}"},
     )
-    assert rdeny.status_code == 404
+    assert rdeny.status_code == 403
 
     rok = await client.get(
         f"/api/v1/tenants/{tenant_id}/coa",

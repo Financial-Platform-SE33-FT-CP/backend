@@ -40,8 +40,13 @@ class ConflictError(DomainException):
 
 
 class ValidationError(DomainException):
-    status_code = status.HTTP_422_UNPROCESSABLE_ENTITY
+    status_code = status.HTTP_422_UNPROCESSABLE_CONTENT
     detail = "Validation failed."
+
+
+class BadRequestError(DomainException):
+    status_code = status.HTTP_400_BAD_REQUEST
+    detail = "Bad request."
 
 
 class ServiceUnavailableError(DomainException):
@@ -63,7 +68,12 @@ def register_exception_handlers(app: FastAPI) -> None:
         UnauthorizedError,
         ForbiddenError,
         ConflictError,
+        BadRequestError,
         ValidationError,
         ServiceUnavailableError,
     ):
         app.add_exception_handler(exc_cls, _handler)  # type: ignore[arg-type]
+
+
+# Backwards-compatible alias used by some services
+setup_exception_handlers = register_exception_handlers
