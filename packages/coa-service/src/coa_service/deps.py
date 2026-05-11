@@ -2,16 +2,18 @@ from collections.abc import AsyncGenerator
 from functools import lru_cache
 
 from fastapi import Depends
-from sqlalchemy.ext.asyncio import AsyncSession
+from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
-from accounting_shared.database import get_async_session as get_shared_async_session
-from accounting_shared.middleware.tenant_context import get_current_tenant_id
-from accounting_shared.types import TenantId
+from accounting_shared.database import get_session
 
 from coa_service.config import COASettings
 from coa_service.modules.coa.application.services import COAService
 from coa_service.modules.coa.domain.repository import AccountRepository
 from coa_service.modules.coa.infrastructure.repository import SqlAlchemyAccountRepository
+
+_settings: COASettings | None = None
+_engine = None
+_session_factory = None
 
 
 @lru_cache
@@ -20,7 +22,14 @@ def get_settings() -> COASettings:
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
-    async for session in get_shared_async_session():
+    global _engine, _session_factory
+
+    if _engine is None:
+        settings = get_settings()
+        _engine = create_async_engine(settings.database_url, echo=settings.debug)
+        _session_factory = async_sessionmaker(_engine, expire_on_commit=False)
+
+    async for session in get_session(_session_factory):
         yield session
 
 

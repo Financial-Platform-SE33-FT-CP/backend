@@ -1,10 +1,8 @@
-from datetime import datetime
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from accounting_shared.types import AccountId, TenantId
-
 from coa_service.modules.coa.domain.entities import Account
 from coa_service.modules.coa.domain.repository import AccountRepository
 from coa_service.modules.coa.infrastructure.models import AccountModel, AccountType
@@ -83,8 +81,7 @@ class SqlAlchemyAccountRepository(AccountRepository):
             model.account_type = AccountType(account.account_type)
             model.parent_id = account.parent_id
             model.is_active = account.is_active
-            model.is_system = account.is_system
-            model.description = account.description
+            model.is_system_default = account.is_system
             model.updated_at = account.updated_at
         return account
 
@@ -102,8 +99,8 @@ class SqlAlchemyAccountRepository(AccountRepository):
             account_type=model.account_type.value,
             parent_id=model.parent_id,
             is_active=model.is_active,
-            is_system=model.is_system,
-            description=model.description or "",
+            is_system=model.is_system_default,
+            description="",
             created_at=model.created_at,
             updated_at=model.updated_at,
         )
@@ -118,8 +115,7 @@ class SqlAlchemyAccountRepository(AccountRepository):
             account_type=AccountType(entity.account_type),
             parent_id=entity.parent_id,
             is_active=entity.is_active,
-            is_system=entity.is_system,
-            description=entity.description or None,
+            is_system_default=entity.is_system,
             created_at=entity.created_at,
             updated_at=entity.updated_at,
         )
