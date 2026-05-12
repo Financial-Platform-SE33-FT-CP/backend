@@ -4,7 +4,7 @@ from abc import ABC, abstractmethod
 
 from accounting_shared.types import TenantId, UserId
 
-from .entities import CoaAccountRow, Tenant, TenantUser
+from .entities import CoaAccountRow, Tenant, TenantMemberRow, TenantUser
 
 
 class TenantRepository(ABC):
@@ -20,6 +20,10 @@ class TenantRepository(ABC):
 
     @abstractmethod
     async def get_by_id(self, tenant_id: TenantId) -> Tenant | None:
+        ...
+
+    @abstractmethod
+    async def tenant_exists(self, tenant_id: TenantId) -> bool:
         ...
 
     @abstractmethod
@@ -43,9 +47,40 @@ class TenantRepository(ABC):
         ...
 
     @abstractmethod
+    async def write_audit_rbac_denied(
+        self,
+        *,
+        tenant_id: TenantId,
+        user_id: UserId,
+        permission: str,
+        reason: str,
+        request_id: str | None,
+        target_resource: str | None = None,
+    ) -> None:
+        ...
+
+    @abstractmethod
     async def list_coa_for_tenant(self, tenant_id: TenantId) -> list[CoaAccountRow]:
         ...
 
     @abstractmethod
     async def remove_user(self, tenant_id: TenantId, user_id: UserId) -> None:
         ...
+
+    @abstractmethod
+    async def find_user_id_by_email(self, email: str) -> UserId | None:
+        ...
+
+    @abstractmethod
+    async def list_tenant_members(self, tenant_id: TenantId) -> list[TenantMemberRow]:
+        ...
+
+    @abstractmethod
+    async def count_active_owners(self, tenant_id: TenantId) -> int:
+        ...
+
+    @abstractmethod
+    async def update_membership_role(
+        self, tenant_id: TenantId, user_id: UserId, new_role: str
+    ) -> bool:
+        """Return True if the membership row existed and was updated."""

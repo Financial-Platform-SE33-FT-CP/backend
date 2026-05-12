@@ -1,8 +1,9 @@
 from __future__ import annotations
 
 from datetime import datetime
+from typing import Self
 
-from pydantic import BaseModel, Field
+from pydantic import BaseModel, EmailStr, Field, model_validator
 
 
 class CreateTenantRequestSchema(BaseModel):
@@ -52,9 +53,19 @@ class CoaAccountResponseSchema(BaseModel):
     updated_at: datetime
 
 
-class AddUserRequestSchema(BaseModel):
-    user_id: str = Field(..., min_length=1)
-    role: str = Field(..., pattern=r"^(owner|accountant|viewer)$")
+class InviteMemberRequestSchema(BaseModel):
+    role: str = Field(..., min_length=1, max_length=32)
+    user_id: str | None = Field(default=None, min_length=1)
+    email: EmailStr | None = None
+
+    @model_validator(mode="after")
+    def one_target(self) -> Self:
+        has_uid = self.user_id is not None and self.user_id != ""
+        has_email = self.email is not None and str(self.email).strip() != ""
+        if has_uid == has_email:
+            msg = "Provide exactly one of user_id or email."
+            raise ValueError(msg)
+        return self
 
 
 class TenantUserResponseSchema(BaseModel):
@@ -63,3 +74,21 @@ class TenantUserResponseSchema(BaseModel):
     user_id: str
     role: str
     created_at: datetime
+
+
+class MeRoleResponseSchema(BaseModel):
+    tenant_id: str
+    user_id: str
+    role: str
+    permissions: list[str]
+
+
+class MemberDetailsResponseSchema(BaseModel):
+    user_id: str
+    email: str
+    role: str
+    created_at: datetime
+
+
+class UpdateMemberRoleRequestSchema(BaseModel):
+    role: str = Field(..., min_length=1, max_length=32, description="OWNER, ACCOUNTANT, or VIEWER")

@@ -58,4 +58,3 @@ class AccountModel(Base):
     children: Mapped[list[AccountModel]] = relationship(
         "AccountModel", back_populates="parent", passive_deletes=True
     )
-

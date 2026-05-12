@@ -6,6 +6,7 @@ from accounting_shared.database import Base
 
 TEST_DATABASE_URL = "sqlite+aiosqlite://"
 
+
 @pytest.fixture(scope="session")
 def engine():
     return create_async_engine(TEST_DATABASE_URL, echo=False)
@@ -31,4 +32,5 @@ async def session(engine, tables) -> AsyncSession:
 @pytest.fixture
 def settings():
     from coa_service.config import COASettings
+
     return COASettings()

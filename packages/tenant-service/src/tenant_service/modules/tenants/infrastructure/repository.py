@@ -3,14 +3,16 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+from accounting_shared.rbac import TenantRole
 from accounting_shared.types import TenantId, UserId
 from audit_service.modules.audit.infrastructure.models import AuditLogModel
+from auth_service.modules.auth.infrastructure.models import UserModel
 from coa_service.modules.coa.infrastructure.models import AccountModel
-from sqlalchemy import select
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ..application.default_sme_coa import DEFAULT_SME_COA_SEED
-from ..domain.entities import CoaAccountRow, Tenant, TenantUser
+from ..domain.entities import CoaAccountRow, Tenant, TenantMemberRow, TenantUser
 from ..domain.repository import TenantRepository
 from .models import TenantModel, TenantUserModel
 
@@ -28,6 +30,11 @@ class SqlAlchemyTenantRepository(TenantRepository):
         if row is None:
             return None
         return self._to_domain_tenant(row)
+
+    async def tenant_exists(self, tenant_id: TenantId) -> bool:
+        stmt = select(TenantModel.id).where(TenantModel.id == tenant_id)
+        result = await self._session.execute(stmt)
+        return result.scalar_one_or_none() is not None
 
     async def get_for_active_member(self, tenant_id: TenantId, user_id: UserId) -> Tenant | None:
         stmt = (
@@ -81,6 +88,7 @@ class SqlAlchemyTenantRepository(TenantRepository):
             role=tenant_user.role,
             status=tenant_user.status,
             created_at=tenant_user.created_at,
+            updated_at=tenant_user.updated_at,
         )
         self._session.add(model)
         await self._session.flush()
@@ -97,6 +105,23 @@ class SqlAlchemyTenantRepository(TenantRepository):
             await self._session.delete(model)
             await self._session.flush()
 
+    async def update_membership_role(
+        self, tenant_id: TenantId, user_id: UserId, new_role: str
+    ) -> bool:
+        stmt = select(TenantUserModel).where(
+            TenantUserModel.tenant_id == tenant_id,
+            TenantUserModel.user_id == user_id,
+            TenantUserModel.status == "active",
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        if model is None:
+            return False
+        model.role = new_role
+        model.updated_at = datetime.now(UTC)
+        await self._session.flush()
+        return True
+
     async def get_user_role(self, tenant_id: TenantId, user_id: UserId) -> str | None:
         stmt = select(TenantUserModel.role).where(
             TenantUserModel.tenant_id == tenant_id,
@@ -106,6 +131,42 @@ class SqlAlchemyTenantRepository(TenantRepository):
         result = await self._session.execute(stmt)
         row = result.scalar_one_or_none()
         return row
+
+    async def find_user_id_by_email(self, email: str) -> UserId | None:
+        norm = email.strip().lower()
+        stmt = select(UserModel.id).where(func.lower(UserModel.email) == norm)
+        result = await self._session.execute(stmt)
+        row = result.scalar_one_or_none()
+        return UserId(row) if row is not None else None
+
+    async def list_tenant_members(self, tenant_id: TenantId) -> list[TenantMemberRow]:
+        stmt = (
+            select(TenantUserModel, UserModel.email)
+            .join(UserModel, TenantUserModel.user_id == UserModel.id)
+            .where(TenantUserModel.tenant_id == tenant_id, TenantUserModel.status == "active")
+            .order_by(UserModel.email)
+        )
+        result = await self._session.execute(stmt)
+        rows = result.all()
+        return [
+            TenantMemberRow(
+                user_id=UserId(tu.user_id),
+                email=email,
+                role=tu.role,
+                created_at=tu.created_at,
+            )
+            for tu, email in rows
+        ]
+
+    async def count_active_owners(self, tenant_id: TenantId) -> int:
+        stmt = select(func.count()).where(
+            TenantUserModel.tenant_id == tenant_id,
+            TenantUserModel.status == "active",
+            func.upper(TenantUserModel.role) == TenantRole.OWNER.value,
+        )
+        result = await self._session.execute(stmt)
+        count = result.scalar_one()
+        return int(count or 0)
 
     async def seed_default_coa(self, tenant_id: TenantId) -> None:
         now = datetime.now(UTC)
@@ -134,6 +195,40 @@ class SqlAlchemyTenantRepository(TenantRepository):
             entity_type="tenant",
             entity_id=str(tenant_id),
             changes=None,
+        )
+        self._session.add(log)
+        await self._session.flush()
+
+    async def write_audit_rbac_denied(
+        self,
+        *,
+        tenant_id: TenantId,
+        user_id: UserId,
+        permission: str,
+        reason: str,
+        request_id: str | None,
+        target_resource: str | None = None,
+        attempted_action: str | None = None,
+    ) -> None:
+        changes: dict[str, object] = {
+            "result": "denied",
+            "permission": permission,
+            "reason": reason,
+            "request_id": request_id,
+            "timestamp": datetime.now(UTC).isoformat(),
+        }
+        if attempted_action is not None:
+            changes["attempted_action"] = attempted_action
+        if target_resource is not None:
+            changes["target_resource"] = target_resource
+        log = AuditLogModel(
+            id=uuid.uuid4(),
+            tenant_id=tenant_id,
+            user_id=user_id,
+            action="RBAC_DENIED",
+            entity_type="rbac",
+            entity_id=str(tenant_id),
+            changes=changes,
         )
         self._session.add(log)
         await self._session.flush()
