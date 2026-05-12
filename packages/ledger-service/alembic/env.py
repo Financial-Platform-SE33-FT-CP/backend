@@ -5,7 +5,7 @@ from alembic import context
 from sqlalchemy import pool
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from ledger_service.infrastructure.models import Base
+from ledger_service.modules.ledger.infrastructure.models import Base
 
 config = context.config
 if config.config_file_name is not None:
