@@ -89,13 +89,35 @@ ROLE_PERMISSIONS: dict[TenantRole, frozenset[str]] = {
 
 
 def normalize_role(value: str) -> TenantRole:
-    """Parse and normalize role names; accepts legacy lowercase from older rows."""
-    v = (value or "").strip().upper()
+    """Parse and normalize role names; accepts DB values and portal-facing aliases."""
+    raw = (value or "").strip()
+    if not raw:
+        msg = "Invalid tenant role: ''"
+        raise ValueError(msg)
+    key = raw.lower()
+    aliases: dict[str, TenantRole] = {
+        "owner": TenantRole.OWNER,
+        "admin": TenantRole.OWNER,
+        "accountant": TenantRole.ACCOUNTANT,
+        "manager": TenantRole.ACCOUNTANT,
+        "viewer": TenantRole.VIEWER,
+    }
+    if key in aliases:
+        return aliases[key]
     try:
-        return TenantRole(v)
+        return TenantRole(raw.upper())
     except ValueError as e:
         msg = f"Invalid tenant role: {value!r}"
         raise ValueError(msg) from e
+
+
+def tenant_role_to_frontend_api(role: TenantRole) -> str:
+    """Lowercase role tokens used by the Next.js tenant client (admin/manager/viewer)."""
+    return {
+        TenantRole.OWNER: "admin",
+        TenantRole.ACCOUNTANT: "manager",
+        TenantRole.VIEWER: "viewer",
+    }[role]
 
 
 def permissions_for_role(role: TenantRole) -> frozenset[str]:
@@ -114,5 +136,5 @@ def permissions_for_role_string(role_str: str) -> frozenset[str]:
 
 
 def expand_legacy_role_string(role_str: str) -> str:
-    """Return canonical UPPER role string; maps legacy 'owner' -> OWNER."""
+    """Return canonical UPPER role string; maps legacy / portal aliases to OWNER/ACCOUNTANT/VIEWER."""
     return normalize_role(role_str).value

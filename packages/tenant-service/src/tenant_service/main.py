@@ -14,6 +14,7 @@ from fastapi.responses import JSONResponse
 
 from .config import TenantSettings
 from .modules.tenants.interfaces.api.internal_router import router as internal_router
+from .modules.tenants.interfaces.api.portal_router import router as portal_router
 from .modules.tenants.interfaces.api.router import router as tenants_router
 
 logger = structlog.get_logger(__name__)
@@ -53,6 +54,7 @@ def create_app() -> FastAPI:
     app.add_middleware(RequestIDMiddleware)
     app.add_middleware(TenantContextMiddleware)
 
+    app.include_router(portal_router)
     app.include_router(tenants_router)
     app.include_router(internal_router)
 

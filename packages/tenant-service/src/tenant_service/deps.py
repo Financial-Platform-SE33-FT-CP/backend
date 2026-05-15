@@ -6,7 +6,7 @@ from collections.abc import AsyncGenerator
 from accounting_shared.exceptions import ForbiddenError, NotFoundError
 from accounting_shared.rbac import TenantRole, role_has_permission
 from accounting_shared.types import TenantId, UserId
-from fastapi import Depends, HTTPException
+from fastapi import Depends, Header, HTTPException
 from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
@@ -53,34 +53,59 @@ async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
             await session.close()
 
 
-async def get_access_token_payload(
-    credentials: HTTPAuthorizationCredentials | None = Depends(security_scheme),
-    settings: TenantSettings = Depends(get_settings),
-) -> dict[str, object]:
+def _jwt_payload_from_bearer(
+    credentials: HTTPAuthorizationCredentials | None,
+    settings: TenantSettings,
+) -> dict[str, object] | None:
     if credentials is None or credentials.scheme.lower() != "bearer":
-        raise HTTPException(status_code=401, detail="Not authenticated.")
+        return None
     try:
         return jwt.decode(
             credentials.credentials,
             settings.jwt_secret,
             algorithms=[settings.jwt_algorithm],
         )
-    except JWTError as e:
-        raise HTTPException(status_code=401, detail="Not authenticated.") from e
+    except JWTError:
+        raise HTTPException(status_code=401, detail="Not authenticated.") from None
+
+
+async def get_access_token_payload(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security_scheme),
+    settings: TenantSettings = Depends(get_settings),
+) -> dict[str, object]:
+    payload = _jwt_payload_from_bearer(credentials, settings)
+    if payload is None:
+        raise HTTPException(status_code=401, detail="Not authenticated.")
+    return payload
 
 
 async def get_current_user_id(
-    payload: dict[str, object] = Depends(get_access_token_payload),
+    credentials: HTTPAuthorizationCredentials | None = Depends(security_scheme),
+    settings: TenantSettings = Depends(get_settings),
+    x_user_id: str | None = Header(default=None, alias="X-User-Id"),
 ) -> UserId:
-    if payload.get("type") != "access":
-        raise HTTPException(status_code=401, detail="Not authenticated.")
-    sub = payload.get("sub")
-    if not sub:
-        raise HTTPException(status_code=401, detail="Not authenticated.")
-    try:
-        return UserId(uuid.UUID(str(sub)))
-    except ValueError as e:
-        raise HTTPException(status_code=401, detail="Not authenticated.") from e
+    payload = _jwt_payload_from_bearer(credentials, settings)
+    if payload is not None:
+        if payload.get("type") != "access":
+            raise HTTPException(status_code=401, detail="Not authenticated.")
+        sub = payload.get("sub")
+        if not sub:
+            raise HTTPException(status_code=401, detail="Not authenticated.")
+        try:
+            return UserId(uuid.UUID(str(sub)))
+        except ValueError as e:
+            raise HTTPException(status_code=401, detail="Not authenticated.") from e
+
+    if settings.trust_x_user_id_header and x_user_id and x_user_id.strip():
+        try:
+            return UserId(uuid.UUID(x_user_id.strip()))
+        except ValueError as e:
+            raise HTTPException(
+                status_code=401,
+                detail="Invalid X-User-Id.",
+            ) from e
+
+    raise HTTPException(status_code=401, detail="Not authenticated.")
 
 
 async def verify_internal_service_token(

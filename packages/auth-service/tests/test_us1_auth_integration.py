@@ -91,8 +91,8 @@ def test_register_creates_unverified_user(client: TestClient, monkeypatch: pytes
     )
     assert r.status_code == 201
     body = r.json()
-    assert body["user"]["is_email_verified"] is False
-    assert body["user"]["email"] == "owner@example.com"
+    assert body["email_verified"] is False
+    assert body["email"] == "owner@example.com"
     client.email_send_mock.assert_awaited_once()  # type: ignore[attr-defined]
 
 

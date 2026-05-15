@@ -106,24 +106,18 @@ class UserResponseSchema(BaseModel):
     created_at: datetime = Field(..., description="Account creation timestamp")
 
 
-class RegisterUserSchema(BaseModel):
-    """User payload returned from POST /auth/register."""
+class RegisterAPIResponseSchema(BaseModel):
+    """POST /auth/register: flat user object + metadata (matches Next.js auth-api)."""
 
     model_config = ConfigDict(from_attributes=True)
 
     id: str = Field(..., description="User unique identifier")
     email: str = Field(..., description="User email address")
     full_name: str | None = Field(None, description="User display name")
-    is_email_verified: bool = Field(..., description="Whether email is verified")
-
-
-class RegisterResponseSchema(BaseModel):
-    """Response schema for user registration."""
-
-    model_config = ConfigDict(from_attributes=True)
-
+    email_verified: bool = Field(..., description="Whether email is verified")
+    is_active: bool = Field(..., description="Whether account is active")
+    created_at: datetime = Field(..., description="Account creation timestamp")
     message: str = Field(..., description="Result message for the client")
-    user: RegisterUserSchema
     verification_code: str | None = Field(
         default=None,
         description="Raw code for non-production testing only (omitted in production)",

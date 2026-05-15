@@ -20,9 +20,8 @@ from auth_service.modules.auth.interfaces.api.schemas import (
     LoginRequestSchema,
     MessageResponseSchema,
     RefreshTokenRequestSchema,
+    RegisterAPIResponseSchema,
     RegisterRequestSchema,
-    RegisterResponseSchema,
-    RegisterUserSchema,
     ResendVerificationCodeRequestSchema,
     TokenResponseSchema,
     VerifyEmailCodeRequestSchema,
@@ -33,7 +32,7 @@ router = APIRouter(tags=["auth"])
 
 @router.post(
     "/register",
-    response_model=RegisterResponseSchema,
+    response_model=RegisterAPIResponseSchema,
     response_model_exclude_none=True,
     status_code=status.HTTP_201_CREATED,
     responses={
@@ -45,7 +44,7 @@ router = APIRouter(tags=["auth"])
 async def register(
     body: RegisterRequestSchema,
     auth_service: AuthService = Depends(get_auth_service),
-) -> RegisterResponseSchema:
+) -> RegisterAPIResponseSchema:
     """Register a new user account."""
     dto = RegisterRequest(
         email=body.email,
@@ -53,14 +52,15 @@ async def register(
         full_name=body.full_name,
     )
     result = await auth_service.register(dto)
-    return RegisterResponseSchema(
+    u = result.user
+    return RegisterAPIResponseSchema(
+        id=u.id,
+        email=u.email,
+        full_name=u.full_name,
+        email_verified=u.is_email_verified,
+        is_active=u.is_active,
+        created_at=u.created_at,
         message=result.message,
-        user=RegisterUserSchema(
-            id=result.user.id,
-            email=result.user.email,
-            full_name=result.user.full_name,
-            is_email_verified=result.user.is_email_verified,
-        ),
         verification_code=result.verification_code,
     )
 
