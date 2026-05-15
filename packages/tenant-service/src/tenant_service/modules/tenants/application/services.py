@@ -38,7 +38,7 @@ from .dto import (
     UpdateMemberRoleRequest,
 )
 
-SUPPORTED_CURRENCIES = frozenset({"SGD", "USD", "EUR", "GBP", "AUD"})
+SUPPORTED_CURRENCIES = frozenset({"SGD", "USD", "EUR", "GBP", "AUD", "MYR", "CNY", "JPY"})
 
 
 class TenantService:

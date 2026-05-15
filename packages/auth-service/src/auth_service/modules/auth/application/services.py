@@ -207,6 +207,8 @@ class AuthService:
                 email=persisted.email,
                 full_name=persisted.full_name,
                 is_email_verified=persisted.email_verified,
+                is_active=persisted.is_active,
+                created_at=persisted.created_at,
             ),
             verification_code=None if prod or raw_code is None else raw_code,
         )

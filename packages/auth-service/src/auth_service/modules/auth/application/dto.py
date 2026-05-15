@@ -93,6 +93,8 @@ class RegisterUserSnippet(BaseModel):
     email: str
     full_name: str | None = None
     is_email_verified: bool
+    is_active: bool
+    created_at: datetime
 
 
 class RegisterResponse(BaseModel):

@@ -207,7 +207,7 @@ async def test_create_tenant_validation_currency(
         headers={"Authorization": f"Bearer {token}"},
         json={
             "name": "Bad",
-            "base_currency": "JPY",
+            "base_currency": "ZZZ",
             "financial_year_start_month": 1,
             "financial_year_start_day": 1,
         },

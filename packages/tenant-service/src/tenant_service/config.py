@@ -26,6 +26,14 @@ class TenantSettings(SharedSettings):
         validation_alias=AliasChoices("TENANT_INTERNAL_API_TOKEN", "internal_api_token"),
         description="Shared secret for /internal/authorization/check (service-to-service).",
     )
+    trust_x_user_id_header: bool = Field(
+        default=True,
+        validation_alias=AliasChoices("TENANT_TRUST_X_USER_ID_HEADER", "trust_x_user_id_header"),
+        description=(
+            "When no Bearer token is sent, accept X-User-Id for the same routes (local dev / "
+            "Next.js workspace bar). Disable in production."
+        ),
+    )
 
     @property
     def service_name(self) -> str:
