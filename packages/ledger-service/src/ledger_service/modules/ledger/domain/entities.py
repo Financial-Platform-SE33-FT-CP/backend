@@ -17,6 +17,7 @@ class JournalEntry:
 @dataclass
 class JournalEntryLine:
     id: str = field(default_factory=lambda: str(uuid4()))
+    tenant_id: str = ""
     journal_entry_id: str = ""
     account_id: str = ""
     debit_amount: Decimal = field(default_factory=Decimal)
