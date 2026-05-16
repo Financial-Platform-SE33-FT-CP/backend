@@ -1,5 +1,6 @@
 """AR/AP Service - FastAPI application."""
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -8,18 +9,17 @@ from fastapi.middleware.cors import CORSMiddleware
 from accounting_shared.database import create_engine, create_session_factory
 from accounting_shared.exceptions import register_exception_handlers
 from accounting_shared.logging import setup_logging
-from accounting_shared.middleware import RequestIDMiddleware, TenantContextMiddleware
-
-from ar_ap_service.config import ArApSettings
+from accounting_shared.middleware.request_id import RequestIDMiddleware
+from accounting_shared.middleware.tenant_context import TenantContextMiddleware
 from ar_ap_service.deps import get_settings
 from ar_ap_service.modules.ar_ap.interfaces.api.router import router as ar_ap_router
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     settings = get_settings()
-    setup_logging(settings)
-    engine = create_engine(settings.database_url)
+    setup_logging(settings.log_level)
+    engine = create_engine(settings)
     session_factory = create_session_factory(engine)
     app.state.engine = engine
     app.state.session_factory = session_factory
@@ -47,7 +47,7 @@ register_exception_handlers(app)
 
 
 @app.get("/health")
-async def health():
+async def health() -> dict[str, str]:
     return {"status": "ok"}
 
 

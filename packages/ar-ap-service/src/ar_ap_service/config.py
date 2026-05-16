@@ -1,6 +1,6 @@
 """AR/AP Service configuration."""
 
-from accounting_shared.settings import SharedSettings
+from accounting_shared.config import SharedSettings
 
 
 class ArApSettings(SharedSettings):

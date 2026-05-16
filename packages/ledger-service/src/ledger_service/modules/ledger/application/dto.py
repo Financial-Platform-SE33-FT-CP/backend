@@ -18,6 +18,7 @@ class JournalEntryDTO(BaseModel):
 
 class JournalEntryLineDTO(BaseModel):
     id: str
+    tenant_id: str
     journal_entry_id: str
     account_id: str
     debit_amount: Decimal
