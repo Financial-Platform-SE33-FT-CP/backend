@@ -13,7 +13,7 @@ dependencies = [
     "structlog",
     "python-jose",
     "httpx",
-    "bcrypt>=4.2.0",
+    "bcrypt>=4.2.0,<5",
     "alembic",
     "shared-lib",
 ]

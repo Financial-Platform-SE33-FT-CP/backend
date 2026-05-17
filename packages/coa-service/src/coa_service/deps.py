@@ -6,8 +6,8 @@ import uuid
 from collections.abc import AsyncGenerator
 from functools import lru_cache
 
-import httpx
 from accounting_shared.database import get_session
+from accounting_shared.http_internal import post_json
 from accounting_shared.exceptions import (
     ForbiddenError,
     NotFoundError,
@@ -98,26 +98,28 @@ async def authorize_via_tenant_service(
     url = f"{base}/internal/authorization/check"
 
     try:
-        async with httpx.AsyncClient(timeout=10.0) as client:
-            response = await client.post(
-                url,
-                headers={"X-Internal-Token": token},
-                json={
-                    "user_id": str(user_id),
-                    "tenant_id": str(tenant_id),
-                    "permission": permission,
-                },
-            )
-    except httpx.RequestError as e:
+        status_code, data = await post_json(
+            url,
+            headers={"X-Internal-Token": token},
+            body={
+                "user_id": str(user_id),
+                "tenant_id": str(tenant_id),
+                "permission": permission,
+            },
+        )
+    except OSError as e:
         msg = "Unable to reach tenant authorization service."
         raise ServiceUnavailableError(msg) from e
 
-    if response.status_code == 401:
+    if status_code == 401:
         raise ServiceUnavailableError("Tenant authorization service rejected the internal token.")
-    if response.status_code != 200:
-        raise ServiceUnavailableError("Tenant authorization service returned an error.")
-
-    data = response.json()
+    if status_code != 200:
+        detail = data if isinstance(data, str) else str(data)
+        raise ServiceUnavailableError(
+            f"Tenant authorization service returned HTTP {status_code}: {detail}"
+        )
+    if not isinstance(data, dict):
+        raise ServiceUnavailableError("Tenant authorization service returned an invalid response.")
     if data.get("allowed") is True:
         return
 
