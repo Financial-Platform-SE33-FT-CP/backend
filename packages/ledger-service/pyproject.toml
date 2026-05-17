@@ -4,17 +4,54 @@ version = "0.1.0"
 description = "Ledger service — double-entry bookkeeping"
 requires-python = ">=3.12"
 dependencies = [
-    "fastapi[standard]",
-    "pydantic",
-    "pydantic-settings",
-    "sqlalchemy[asyncio]",
-    "asyncpg",
-    "structlog",
-    "httpx",
-    "alembic",
+    "fastapi[standard]>=0.115.0",
+    "pydantic>=2.10.0",
+    "pydantic-settings>=2.7.0",
+    "sqlalchemy[asyncio]>=2.0.36",
+    "asyncpg>=0.30.0",
+    "structlog>=24.4.0",
+    "httpx>=0.28.0",
+    "python-jose[cryptography]>=3.3.0",
+    "python-multipart>=0.0.9",
+    "alembic>=1.14.0",
     "shared-lib",
+    "coa-service",
+    "ar-ap-service",
+    "tenant-service",
+]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "aiosqlite>=0.20.0",
 ]
 
 [build-system]
 requires = ["hatchling"]
 build-backend = "hatchling.build"
+
+[tool.hatch.build.targets.wheel]
+packages = ["src/ledger_service"]
+
+[tool.pytest.ini_options]
+asyncio_mode = "auto"
+testpaths = ["tests"]
+
+[tool.coverage.run]
+source = [
+    "ledger_service/modules/opening_balance",
+    "ledger_service/modules/ledger/infrastructure/repository.py",
+]
+omit = ["*/tests/*"]
+
+[tool.coverage.report]
+fail_under = 90
+show_missing = true
+
+[tool.uv.sources]
+shared-lib = { workspace = true }
+coa-service = { workspace = true }
+ar-ap-service = { workspace = true }
+tenant-service = { workspace = true }
