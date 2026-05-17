@@ -1,0 +1,44 @@
+name: Release
+
+on:
+  push:
+    tags:
+      - "v[0-9]+.[0-9]+.[0-9]+*"
+
+permissions:
+  contents: write
+  packages: write
+
+jobs:
+  create-release:
+    name: Create GitHub Release
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Generate changelog
+        id: changelog
+        run: |
+          echo "changelog<<EOF" >> "$GITHUB_OUTPUT"
+          git log --pretty=format:"- %s (%h)" $(git describe --tags --abbrev=0 HEAD~1 2>/dev/null || echo "")..HEAD >> "$GITHUB_OUTPUT" || true
+          echo "" >> "$GITHUB_OUTPUT"
+          echo "EOF" >> "$GITHUB_OUTPUT"
+
+      - name: Create Release
+        uses: softprops/action-gh-release@v2
+        with:
+          body: |
+            ## Changes
+            ${{ steps.changelog.outputs.changelog }}
+
+            ## Docker Images
+            - `ghcr.io/Financial-Platform-SE33-FT-CP/accounting-platform-auth-service:${{ github.ref_name }}`
+            - `ghcr.io/Financial-Platform-SE33-FT-CP/accounting-platform-tenant-service:${{ github.ref_name }}`
+            - `ghcr.io/Financial-Platform-SE33-FT-CP/accounting-platform-coa-service:${{ github.ref_name }}`
+            - `ghcr.io/Financial-Platform-SE33-FT-CP/accounting-platform-ledger-service:${{ github.ref_name }}`
+            - `ghcr.io/Financial-Platform-SE33-FT-CP/accounting-platform-audit-service:${{ github.ref_name }}`
+            - `ghcr.io/Financial-Platform-SE33-FT-CP/accounting-platform-ar-ap-service:${{ github.ref_name }}`
+            - `ghcr.io/Financial-Platform-SE33-FT-CP/accounting-platform-frontend:${{ github.ref_name }}`
+          generate_release_notes: true

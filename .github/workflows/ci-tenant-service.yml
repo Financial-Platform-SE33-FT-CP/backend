@@ -1,0 +1,110 @@
+name: CI - tenant-service
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "packages/tenant-service/**"
+      - "packages/shared-lib/**"
+      - "backend/pyproject.toml"
+      - ".github/workflows/ci-tenant-service.yml"
+  pull_request:
+    paths:
+      - "packages/tenant-service/**"
+      - "packages/shared-lib/**"
+      - "backend/pyproject.toml"
+      - ".github/workflows/ci-tenant-service.yml"
+
+jobs:
+  lint-and-type:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.6.x"
+          enable-cache: true
+
+      - name: Sync dependencies
+        working-directory: .
+        run: uv sync --package tenant-service --group dev
+
+      - name: Ruff check
+        working-directory: .
+        run: uv run --package tenant-service ruff check --select E,W,F --ignore E501,F401 packages/tenant-service/src
+
+      - name: Ruff format check
+        working-directory: .
+        run: uv run --package tenant-service ruff format --check packages/tenant-service/src
+        continue-on-error: true
+
+      - name: Mypy
+        working-directory: .
+        run: uv run --package tenant-service mypy --ignore-missing-imports packages/tenant-service/src
+        continue-on-error: true
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-type
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.6.x"
+          enable-cache: true
+
+      - name: Sync dependencies
+        working-directory: .
+        run: uv sync --package tenant-service --group dev
+
+      - name: Run unit tests
+        working-directory: .
+        run: |
+          if [ -d "packages/tenant-service/tests/unit" ]; then
+            uv run --package tenant-service pytest packages/tenant-service/tests/unit -v --cov=packages/tenant-service/src --cov-report=xml || [ $? -eq 5 ]
+          else
+            echo "No unit tests directory found, running all tests with coverage."
+            uv run --package tenant-service pytest packages/tenant-service/tests -v --cov=packages/tenant-service/src --cov-report=xml || [ $? -eq 5 ]
+          fi
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-tenant-service
+          path: coverage.xml
+          retention-days: 7
+
+  integration-tests:
+    name: Integration Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-type
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.6.x"
+          enable-cache: true
+
+      - name: Sync dependencies
+        working-directory: .
+        run: uv sync --package tenant-service --group dev
+
+      - name: Run integration tests
+        env:
+          TESTCONTAINERS_RYUK_DISABLED: true
+          TESTCONTAINERS_DOCKER_SOCKET_OVERRIDE: /var/run/docker.sock
+        working-directory: .
+        run: |
+          if [ -d "packages/tenant-service/tests/integration" ]; then
+            uv run --package tenant-service pytest packages/tenant-service/tests/integration -v || [ $? -eq 5 ]
+          else
+            echo "No integration tests directory found, skipping."
+          fi
