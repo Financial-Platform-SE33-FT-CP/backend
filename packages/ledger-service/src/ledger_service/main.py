@@ -28,15 +28,15 @@ async def lifespan(app: FastAPI):
 def create_app() -> FastAPI:
     app = FastAPI(title="Ledger Service", lifespan=lifespan)
 
-    app.add_middleware(RequestIDMiddleware)
-    app.add_middleware(TenantContextMiddleware)
     app.add_middleware(
         CORSMiddleware,
         allow_origins=["*"],
-        allow_credentials=True,
+        allow_credentials=False,
         allow_methods=["*"],
         allow_headers=["*"],
     )
+    app.add_middleware(RequestIDMiddleware)
+    app.add_middleware(TenantContextMiddleware)
 
     register_exception_handlers(app)
 
