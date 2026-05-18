@@ -2,7 +2,7 @@ from datetime import datetime
 from typing import Optional
 from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict, field_validator
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class CreateAccountRequest(BaseModel):
@@ -49,4 +49,4 @@ class AccountTreeNode(BaseModel):
     code: str
     name: str
     account_type: str
-    children: list["AccountTreeNode"] = []
+    children: list["AccountTreeNode"] = Field(default_factory=list)

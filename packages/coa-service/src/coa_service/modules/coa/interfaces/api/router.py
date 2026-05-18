@@ -92,7 +92,7 @@ async def seed_default_accounts(
 ):
     return await service.seed_default_coa(tenant_id, settings)
 
-@router.patch("/accounts/{account_id}/deactivate",response_model=AccountResponse)
+@router.patch("/accounts/{account_id}/deactivate", response_model=AccountResponse)
 async def deactivate_account(
     account_id: str,
     _: Annotated[None, Depends(RequireCoaPermission(P_COA_UPDATE))],
