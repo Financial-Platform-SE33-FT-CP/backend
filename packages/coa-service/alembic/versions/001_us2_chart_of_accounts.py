@@ -19,7 +19,7 @@ def upgrade() -> None:
         sa.Column(
             "tenant_id",
             sa.Uuid(as_uuid=True),
-            sa.ForeignKey("tenants.id", ondelete="CASCADE"),
+            #sa.ForeignKey("tenants.id", ondelete="CASCADE"),
             nullable=False,
         ),
         sa.Column("code", sa.String(length=20), nullable=False),
