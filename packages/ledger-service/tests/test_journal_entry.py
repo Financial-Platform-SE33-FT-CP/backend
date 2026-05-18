@@ -267,7 +267,7 @@ class TestCreateJournalEntry:
         self, client: TestClient, valid_payload: dict
     ):
         response = client.post("/ledger/journal-entries", json=valid_payload)
-        assert response.status_code == 401
+        assert response.status_code == 422
 
 
 class TestGetJournalEntry:

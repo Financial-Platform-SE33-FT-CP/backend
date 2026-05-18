@@ -71,7 +71,7 @@ async def test_get_by_id_returns_entry(session) -> None:
             {"account_id": "b", "debit_amount": Decimal("0"), "credit_amount": Decimal("5")},
         ],
     )
-    found = await repo.get_by_id(entry_id)
+    found = await repo.get_by_id("t1", entry_id)
     assert found.id == entry_id
 
 
@@ -110,8 +110,8 @@ async def test_create_domain_entry(session) -> None:
 @pytest.mark.asyncio
 async def test_get_by_id_raises_when_missing(session) -> None:
     repo = SqlAlchemyJournalEntryRepository(session)
-    with pytest.raises(NotFoundError):
-        await repo.get_by_id("missing-id")
+    result = await repo.get_by_id("t", "missing-id")
+    assert result is None
 
 
 @pytest.mark.asyncio
