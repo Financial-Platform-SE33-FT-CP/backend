@@ -105,4 +105,3 @@ async def deactivate_account(
         raise HTTPException(status_code=404, detail=str(e)) from e
     except CannotDeleteSystemAccountError as e:
         raise HTTPException(status_code=403, detail=str(e)) from e
-    
