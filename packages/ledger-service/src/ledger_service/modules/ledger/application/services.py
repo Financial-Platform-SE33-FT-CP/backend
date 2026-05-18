@@ -141,10 +141,10 @@ def _validate_lines(dto: CreateJournalEntryDTO) -> None:
             )
 
     total_debit = sum(
-        (l.debit_amount or Decimal("0.00") for l in dto.lines), Decimal("0.00")
+        (ln.debit_amount or Decimal("0.00") for ln in dto.lines), Decimal("0.00")
     )
     total_credit = sum(
-        (l.credit_amount or Decimal("0.00") for l in dto.lines), Decimal("0.00")
+        (ln.credit_amount or Decimal("0.00") for ln in dto.lines), Decimal("0.00")
     )
 
     if total_debit == 0 and total_credit == 0:
