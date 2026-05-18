@@ -15,6 +15,9 @@ uv.lock
 # Local SQLite databases (dev)
 packages/auth-service/*.sqlite
 
+# Sensitive docs (contains credentials)
+NEON_DATABASE_SETUP.md
+
 # IDE
 .vscode/
 .idea/
