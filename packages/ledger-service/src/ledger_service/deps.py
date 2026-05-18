@@ -23,6 +23,11 @@ from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ledger_service.config import LedgerSettings
+from ledger_service.modules.ledger.application.services import LedgerService
+from ledger_service.modules.ledger.infrastructure.repository import (
+    SqlAlchemyAccountingPeriodRepository,
+    SqlAlchemyJournalEntryRepository,
+)
 
 security_scheme = HTTPBearer(auto_error=False)
 
@@ -67,6 +72,12 @@ def require_tenant_id() -> TenantId:
     if raw is None:
         raise ValidationError("X-Tenant-ID header is required.")
     return TenantId(raw)
+
+
+async def get_current_tenant_id_str(
+    tenant_id: TenantId = Depends(require_tenant_id),
+) -> str:
+    return str(tenant_id)
 
 
 async def authorize_via_tenant_service(
@@ -142,3 +153,11 @@ async def get_async_session(request: Request) -> AsyncGenerator[AsyncSession, No
     factory = request.app.state.session_factory
     async for session in get_session(factory):
         yield session
+
+
+async def get_ledger_service(
+    session: AsyncSession = Depends(get_async_session),
+) -> LedgerService:
+    journal_repo = SqlAlchemyJournalEntryRepository(session)
+    period_repo = SqlAlchemyAccountingPeriodRepository(session)
+    return LedgerService(journal_repo, period_repo)
