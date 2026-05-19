@@ -91,3 +91,17 @@ async def seed_default_accounts(
     settings: COASettings = Depends(get_settings),
 ):
     return await service.seed_default_coa(tenant_id, settings)
+
+@router.patch("/accounts/{account_id}/deactivate", response_model=AccountResponse)
+async def deactivate_account(
+    account_id: str,
+    _: Annotated[None, Depends(RequireCoaPermission(P_COA_UPDATE))],
+    tenant_id: TenantId = Depends(require_tenant_id),
+    service: COAService = Depends(get_coa_service),
+):
+    try:
+        return await service.disable_account(account_id, tenant_id)
+    except AccountNotFoundError as e:
+        raise HTTPException(status_code=404, detail=str(e)) from e
+    except CannotDeleteSystemAccountError as e:
+        raise HTTPException(status_code=403, detail=str(e)) from e
