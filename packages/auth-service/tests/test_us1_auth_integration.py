@@ -137,14 +137,15 @@ def test_non_production_register_includes_verification_code(
     assert body.get("verification_code") == FIXED_CODE
 
 
-def test_register_email_send_failure_returns_503(client_email_fail: TestClient) -> None:
+def test_register_email_send_failure_returns_201_with_flag(client_email_fail: TestClient) -> None:
     r = client_email_fail.post(
         "/auth/register",
         json={"email": "failmail@example.com", "password": VALID_PASSWORD},
     )
-    assert r.status_code == 503
-    assert "verification email could not be sent" in r.json()["detail"].lower()
-
+    assert r.status_code == 201
+    body = r.json()
+    assert body["verification_email_sent"] is False
+    assert "could not be sent" in body["message"].lower()
     engine = client_email_fail.app.state.engine
 
     async def _check() -> None:

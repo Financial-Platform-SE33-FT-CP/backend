@@ -7,6 +7,7 @@ import pytest_asyncio
 from sqlalchemy import text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
+from coa_service.modules.coa.infrastructure.models import AccountModel
 from ledger_service.modules.ledger.infrastructure.models import (
     JournalEntryLineModel,
     JournalEntryModel,
@@ -26,16 +27,16 @@ async def tables(engine):
         await conn.execute(text("PRAGMA foreign_keys=OFF"))
 
         def create_journal_tables(sync_conn) -> None:
+            AccountModel.__table__.create(sync_conn, checkfirst=True)
             JournalEntryModel.__table__.create(sync_conn, checkfirst=True)
             JournalEntryLineModel.__table__.create(sync_conn, checkfirst=True)
-
         await conn.run_sync(create_journal_tables)
     yield
     async with engine.begin() as conn:
         def drop_journal_tables(sync_conn) -> None:
             JournalEntryLineModel.__table__.drop(sync_conn, checkfirst=True)
             JournalEntryModel.__table__.drop(sync_conn, checkfirst=True)
-
+            AccountModel.__table__.drop(sync_conn, checkfirst=True)
         await conn.run_sync(drop_journal_tables)
 
 

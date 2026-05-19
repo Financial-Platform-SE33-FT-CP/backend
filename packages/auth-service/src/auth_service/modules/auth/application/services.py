@@ -20,6 +20,7 @@ from auth_service.modules.auth.application.dto import (
     RegisterRequest,
     RegisterResponse,
     RegisterUserSnippet,
+    ResendVerificationResponse,
     TokenResponse,
 )
 from auth_service.modules.auth.domain.entities import User
@@ -183,8 +184,15 @@ class AuthService:
                     self._settings.email_verify_code_expire_minutes,
                 )
             except Exception as exc:
-                logger.exception("verification_email_send_failed", email=persisted.email)
-                raise VerificationEmailFailedError() from exc
+                logger.warning(
+                    "verification_email_send_failed",
+                    email=persisted.email,
+                    error_type=type(exc).__name__,
+                    error=str(exc),
+                )
+                verification_email_sent = False
+            else:
+                verification_email_sent = True
 
             if not _is_production(self._settings):
                 logger.info(
@@ -192,13 +200,19 @@ class AuthService:
                     user_id=str(persisted.id),
                     email=persisted.email,
                 )
+        else:
+            verification_email_sent = True
 
         prod = _is_production(self._settings)
-        message = (
-            "Registration successful."
-            if not self._settings.email_verification_required
-            else "Registration successful. Please check your email for the verification code."
-        )
+        if not self._settings.email_verification_required:
+            message = "Registration successful."
+        elif verification_email_sent:
+            message = "Registration successful. Please check your email for the verification code."
+        else:
+            message = (
+                "Registration successful, but verification email could not be sent. "
+                "Please request a new code from the verification page."
+            )
 
         return RegisterResponse(
             message=message,
@@ -211,6 +225,7 @@ class AuthService:
                 created_at=persisted.created_at,
             ),
             verification_code=None if prod or raw_code is None else raw_code,
+            verification_email_sent=verification_email_sent,
         )
 
     async def login(self, dto: LoginRequest) -> TokenResponse:
@@ -325,16 +340,16 @@ class AuthService:
         "If the account exists and is not verified, a new verification code has been sent."
     )
 
-    async def resend_verification_code(self, email: str) -> str:
+    async def resend_verification_code(self, email: str) -> ResendVerificationResponse:
         """Resend code with generic response and cooldown (anti-enumeration)."""
         try:
             em = Email(str(email))
         except ValidationError:
-            return self.RESEND_VERIFICATION_GENERIC_MESSAGE
+            return ResendVerificationResponse(message=self.RESEND_VERIFICATION_GENERIC_MESSAGE)
 
         user = await self._user_repo.get_by_email(em.value)
         if user is None or user.email_verified:
-            return self.RESEND_VERIFICATION_GENERIC_MESSAGE
+            return ResendVerificationResponse(message=self.RESEND_VERIFICATION_GENERIC_MESSAGE)
 
         now = datetime.now(UTC)
         latest = await self._user_repo.find_latest_verification_code_row_for_user(user.id)
@@ -344,7 +359,7 @@ class AuthService:
             and (now - latest.last_sent_at).total_seconds()
             < self._settings.email_verify_code_resend_cooldown_seconds
         ):
-            return self.RESEND_VERIFICATION_GENERIC_MESSAGE
+            return ResendVerificationResponse(message=self.RESEND_VERIFICATION_GENERIC_MESSAGE)
 
         await self._user_repo.mark_all_pending_verification_codes_used_for_user(user.id)
         raw = _generate_numeric_verification_code(self._settings.email_verify_code_length)
@@ -367,9 +382,23 @@ class AuthService:
                 raw,
                 self._settings.email_verify_code_expire_minutes,
             )
-        except Exception:
+        except Exception as exc:
             logger.exception("resend_verification_email_failed", email=user.email)
-        return self.RESEND_VERIFICATION_GENERIC_MESSAGE
+            raise VerificationEmailFailedError() from exc
+
+        if not _is_production(self._settings):
+            logger.info(
+                "verification_code_issued_dev",
+                user_id=str(user.id),
+                email=user.email,
+                source="resend",
+            )
+
+        dev_code = raw if not _is_production(self._settings) else None
+        return ResendVerificationResponse(
+            message=self.RESEND_VERIFICATION_GENERIC_MESSAGE,
+            verification_code=dev_code,
+        )
 
     async def refresh_access_token(self, raw_refresh: str) -> TokenResponse:
         now = datetime.now(UTC)

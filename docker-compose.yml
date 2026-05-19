@@ -1,0 +1,25 @@
+# Local PostgreSQL for development (matches backend/.env DATABASE_URL).
+# Start Docker Desktop first, then:  docker compose up -d
+# Stop:  docker compose down
+
+services:
+  postgres:
+    image: postgres:17
+    container_name: accounting-postgres
+    restart: unless-stopped
+    environment:
+      POSTGRES_USER: postgres
+      POSTGRES_PASSWORD: postgres
+      POSTGRES_DB: accounting
+    ports:
+      - "5432:5432"
+    volumes:
+      - accounting_pg_data:/var/lib/postgresql/data
+    healthcheck:
+      test: ["CMD-SHELL", "pg_isready -U postgres -d accounting"]
+      interval: 5s
+      timeout: 5s
+      retries: 5
+
+volumes:
+  accounting_pg_data:

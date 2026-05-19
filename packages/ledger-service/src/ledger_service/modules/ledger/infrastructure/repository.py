@@ -1,16 +1,23 @@
 from __future__ import annotations
 
+import uuid
 from datetime import date, datetime
 from decimal import Decimal
 from typing import Any
 from uuid import uuid4
 
-from sqlalchemy import select
+from coa_service.modules.coa.infrastructure.models import AccountModel
+from sqlalchemy import func, select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from accounting_shared.exceptions import NotFoundError, ValidationError
 
-from ledger_service.modules.ledger.domain.entities import JournalEntry
+from ledger_service.modules.ledger.domain.entities import (
+    AccountLedgerTransaction,
+    JournalEntry,
+    LedgerAccountSnapshot,
+    TrialBalanceAccountAggregate,
+)
 from ledger_service.modules.ledger.domain.repository import JournalEntryRepository
 from ledger_service.modules.ledger.infrastructure.models import (
     JournalEntryLineModel,
@@ -52,6 +59,205 @@ class SqlAlchemyJournalEntryRepository(JournalEntryRepository):
         self._session.add(model)
         await self._session.flush()
         return entry
+
+    async def get_account_snapshot(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+    ) -> LedgerAccountSnapshot | None:
+        try:
+            tenant_uuid = uuid.UUID(tenant_id)
+            account_uuid = uuid.UUID(account_id)
+        except ValueError:
+            return None
+
+        result = await self._session.execute(
+            select(AccountModel).where(
+                AccountModel.tenant_id == tenant_uuid,
+                AccountModel.id == account_uuid,
+            )
+        )
+        model = result.scalars().first()
+        if model is None:
+            return None
+
+        return LedgerAccountSnapshot(
+            id=str(model.id),
+            code=model.code,
+            name=model.name,
+            account_type=model.account_type.value,
+        )
+
+    async def get_account_balance_before(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        before_date: date,
+    ) -> Decimal:
+        stmt = (
+            select(
+                func.coalesce(
+                    func.sum(
+                        JournalEntryLineModel.debit_amount
+                        - JournalEntryLineModel.credit_amount
+                    ),
+                    0,
+                )
+            )
+            .join(
+                JournalEntryModel,
+                JournalEntryModel.id == JournalEntryLineModel.journal_entry_id,
+            )
+            .where(
+                JournalEntryLineModel.tenant_id == tenant_id,
+                JournalEntryLineModel.account_id == account_id,
+                JournalEntryModel.entry_date < before_date,
+            )
+        )
+        result = await self._session.execute(stmt)
+        return self._to_decimal(result.scalar_one())
+
+    async def list_account_transactions(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        from_date: date | None,
+        to_date: date | None,
+    ) -> list[AccountLedgerTransaction]:
+        stmt = (
+            select(
+                JournalEntryLineModel.id.label("journal_line_id"),
+                JournalEntryLineModel.journal_entry_id,
+                JournalEntryLineModel.debit_amount,
+                JournalEntryLineModel.credit_amount,
+                JournalEntryLineModel.description.label("line_description"),
+                JournalEntryModel.entry_date,
+                JournalEntryModel.reference,
+                JournalEntryModel.source_type,
+                JournalEntryModel.description.label("entry_description"),
+                JournalEntryModel.created_at,
+            )
+            .join(
+                JournalEntryModel,
+                JournalEntryModel.id == JournalEntryLineModel.journal_entry_id,
+            )
+            .where(
+                JournalEntryLineModel.tenant_id == tenant_id,
+                JournalEntryLineModel.account_id == account_id,
+            )
+            .order_by(
+                JournalEntryModel.entry_date.asc(),
+                JournalEntryModel.created_at.asc(),
+                JournalEntryLineModel.id.asc(),
+            )
+        )
+        if from_date is not None:
+            stmt = stmt.where(JournalEntryModel.entry_date >= from_date)
+        if to_date is not None:
+            stmt = stmt.where(JournalEntryModel.entry_date <= to_date)
+
+        result = await self._session.execute(stmt)
+        rows = result.mappings().all()
+
+        return [
+            AccountLedgerTransaction(
+                journal_line_id=str(row["journal_line_id"]),
+                journal_entry_id=str(row["journal_entry_id"]),
+                entry_date=row["entry_date"],
+                reference=str(row["reference"]),
+                source_type=row["source_type"],
+                entry_description=row["entry_description"],
+                line_description=row["line_description"],
+                debit_amount=self._to_decimal(row["debit_amount"]),
+                credit_amount=self._to_decimal(row["credit_amount"]),
+                created_at=row["created_at"],
+            )
+            for row in rows
+        ]
+
+    async def get_trial_balance_rows(
+        self,
+        *,
+        tenant_id: str,
+        as_of_date: date | None,
+    ) -> list[TrialBalanceAccountAggregate]:
+        try:
+            tenant_uuid = uuid.UUID(tenant_id)
+        except ValueError:
+            return []
+
+        stmt = (
+            select(
+                JournalEntryLineModel.account_id.label("account_id"),
+                func.coalesce(func.sum(JournalEntryLineModel.debit_amount), 0).label(
+                    "total_debit"
+                ),
+                func.coalesce(func.sum(JournalEntryLineModel.credit_amount), 0).label(
+                    "total_credit"
+                ),
+            )
+            .join(
+                JournalEntryModel,
+                JournalEntryModel.id == JournalEntryLineModel.journal_entry_id,
+            )
+            .where(
+                JournalEntryLineModel.tenant_id == tenant_id,
+                JournalEntryModel.tenant_id == tenant_id,
+            )
+            .group_by(JournalEntryLineModel.account_id)
+        )
+        if as_of_date is not None:
+            stmt = stmt.where(JournalEntryModel.entry_date <= as_of_date)
+
+        totals_result = await self._session.execute(stmt)
+        totals = totals_result.mappings().all()
+        if not totals:
+            return []
+
+        account_uuid_by_id: dict[str, uuid.UUID] = {}
+        for row in totals:
+            account_id = str(row["account_id"])
+            try:
+                account_uuid_by_id[account_id] = uuid.UUID(account_id)
+            except ValueError:
+                continue
+
+        if not account_uuid_by_id:
+            return []
+
+        accounts_result = await self._session.execute(
+            select(AccountModel).where(
+                AccountModel.tenant_id == tenant_uuid,
+                AccountModel.id.in_(tuple(account_uuid_by_id.values())),
+            )
+        )
+        account_map = {
+            str(model.id): model
+            for model in accounts_result.scalars().all()
+        }
+
+        rows: list[TrialBalanceAccountAggregate] = []
+        for row in totals:
+            account_id = str(row["account_id"])
+            account = account_map.get(account_id)
+            if account is None:
+                continue
+            rows.append(
+                TrialBalanceAccountAggregate(
+                    account_id=account_id,
+                    account_code=account.code,
+                    account_name=account.name,
+                    account_type=account.account_type.value,
+                    total_debit=self._to_decimal(row["total_debit"]),
+                    total_credit=self._to_decimal(row["total_credit"]),
+                )
+            )
+
+        rows.sort(key=lambda item: item.account_code)
+        return rows
 
     async def create_opening_entry(
         self,
@@ -124,3 +330,11 @@ class SqlAlchemyJournalEntryRepository(JournalEntryRepository):
             description=model.description or "",
             created_at=model.created_at,
         )
+
+    @staticmethod
+    def _to_decimal(value: Any) -> Decimal:
+        if isinstance(value, Decimal):
+            return value
+        if value is None:
+            return Decimal("0.00")
+        return Decimal(str(value))

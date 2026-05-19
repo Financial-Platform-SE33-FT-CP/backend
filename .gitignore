@@ -20,3 +20,10 @@ packages/auth-service/*.sqlite
 .idea/
 *.swp
 *.swo
+
+# others
+*.docx
+*.pdf
+*.xlsx
+*.zip
+*.tar.gz

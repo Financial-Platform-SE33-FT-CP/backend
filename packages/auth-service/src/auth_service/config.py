@@ -1,15 +1,19 @@
 """Auth service configuration."""
 
+from pathlib import Path
+
 from accounting_shared.config import SharedSettings
 from pydantic import AliasChoices, Field, SecretStr
 from pydantic_settings import SettingsConfigDict
+
+_BACKEND_ROOT_ENV = Path(__file__).resolve().parents[4] / ".env"
 
 
 class AuthSettings(SharedSettings):
     """Auth-service-specific settings extending shared configuration."""
 
     model_config = SettingsConfigDict(
-        env_file=".env",
+        env_file=(".env", _BACKEND_ROOT_ENV),
         env_file_encoding="utf-8",
         extra="ignore",
         populate_by_name=True,
