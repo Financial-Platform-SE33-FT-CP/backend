@@ -32,9 +32,11 @@ WORKDIR /app
 ENV PYTHONDONTWRITEBYTECODE=1 \
     PYTHONUNBUFFERED=1
 
-# Install only runtime dependency (libpq for asyncpg)
+# Runtime dependencies:
+#   libpq5   — asyncpg (PostgreSQL driver)
+#   curl     — healthcheck probing
 RUN apt-get update \
-    && apt-get install -y --no-install-recommends libpq5 \
+    && apt-get install -y --no-install-recommends libpq5 curl \
     && rm -rf /var/lib/apt/lists/*
 
 COPY --from=builder /app/.venv /app/.venv
@@ -44,7 +46,11 @@ COPY --from=builder /app/packages/ packages/
 ENV PATH="/app/.venv/bin:$PATH"
 
 ARG SERVICE
-ENV SERVICE=${SERVICE}
 
-# Shell-form CMD so bash substitution (${SERVICE//-/_}) is evaluated
-CMD uv run --package ${SERVICE} uvicorn ${SERVICE//-/_}.main:app --host 0.0.0.0 --port 8000
+# Generate a startup script to avoid bash-only ${SERVICE//-/_} substitution.
+# `tr - _` is POSIX-compatible and works under /bin/sh (dash).
+RUN printf '#!/bin/sh\nset -e\nuvicorn %s.main:app --host 0.0.0.0 --port 8000\n' \
+      "$(echo ${SERVICE} | tr - _)" > /app/start.sh \
+    && chmod +x /app/start.sh
+
+CMD ["/app/start.sh"]
