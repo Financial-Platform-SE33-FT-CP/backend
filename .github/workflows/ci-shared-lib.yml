@@ -1,0 +1,78 @@
+name: CI - shared-lib
+
+on:
+  push:
+    branches: [develop]
+    paths:
+      - "packages/shared-lib/**"
+      - "backend/pyproject.toml"
+      - ".github/workflows/ci-shared-lib.yml"
+  pull_request:
+    paths:
+      - "packages/shared-lib/**"
+      - "backend/pyproject.toml"
+      - ".github/workflows/ci-shared-lib.yml"
+
+jobs:
+  lint-and-type:
+    name: Lint & Type Check
+    runs-on: ubuntu-latest
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.6.x"
+          enable-cache: true
+
+      - name: Sync dependencies
+        working-directory: .
+        run: uv sync --package shared-lib --group dev
+
+      - name: Ruff check
+        working-directory: .
+        run: uv run --package shared-lib ruff check --select E,W,F --ignore E501,F401 packages/shared-lib/src
+
+      - name: Ruff format check
+        working-directory: .
+        run: uv run --package shared-lib ruff format --check packages/shared-lib/src
+        continue-on-error: true
+
+      - name: Mypy
+        working-directory: .
+        run: uv run --package shared-lib mypy --ignore-missing-imports packages/shared-lib/src
+        continue-on-error: true
+
+  unit-tests:
+    name: Unit Tests
+    runs-on: ubuntu-latest
+    needs: lint-and-type
+    steps:
+      - uses: actions/checkout@v4
+
+      - name: Install uv
+        uses: astral-sh/setup-uv@v5
+        with:
+          version: "0.6.x"
+          enable-cache: true
+
+      - name: Sync dependencies
+        working-directory: .
+        run: uv sync --package shared-lib --group dev
+
+      - name: Run unit tests
+        working-directory: .
+        run: |
+          if [ -d "packages/shared-lib/tests/unit" ]; then
+            uv run --package shared-lib pytest packages/shared-lib/tests/unit -v --cov=packages/shared-lib/src --cov-report=xml || [ $? -eq 5 ]
+          else
+            uv run --package shared-lib pytest packages/shared-lib/tests -v --cov=packages/shared-lib/src --cov-report=xml || [ $? -eq 5 ]
+          fi
+
+      - name: Upload coverage
+        uses: actions/upload-artifact@v4
+        with:
+          name: coverage-shared-lib
+          path: coverage.xml
+          retention-days: 7

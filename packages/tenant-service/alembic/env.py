@@ -1,12 +1,17 @@
 from __future__ import annotations
 
 import asyncio
+import os
 from logging.config import fileConfig
 
-from alembic import context
+from accounting_shared.database import Base
 from sqlalchemy.ext.asyncio import create_async_engine
 
-from tenant_service.modules.tenants.infrastructure.models import metadata
+from alembic import context
+from tenant_service.modules.tenants.infrastructure.models import (  # noqa: F401
+    TenantModel,
+    TenantUserModel,
+)
 
 # Alembic Config object
 config = context.config
@@ -16,7 +21,11 @@ if config.config_file_name is not None:
     fileConfig(config.config_file_name)
 
 # Target metadata for autogenerate
-target_metadata = metadata
+target_metadata = Base.metadata
+
+
+def _database_url() -> str:
+    return os.environ.get("DATABASE_URL") or config.get_main_option("sqlalchemy.url")
 
 
 def run_migrations_offline() -> None:
@@ -25,12 +34,13 @@ def run_migrations_offline() -> None:
     Configures the context with just a URL and not an Engine.
     Calls to context.execute() here emit the SQL to the script output.
     """
-    url = config.get_main_option("sqlalchemy.url")
+    url = _database_url()
     context.configure(
         url=url,
         target_metadata=target_metadata,
         literal_binds=True,
         dialect_opts={"paramstyle": "named"},
+        version_table="alembic_version_tenant_service",
     )
 
     with context.begin_transaction():
@@ -38,14 +48,18 @@ def run_migrations_offline() -> None:
 
 
 def do_run_migrations(connection) -> None:
-    context.configure(connection=connection, target_metadata=target_metadata)
+    context.configure(
+        connection=connection,
+        target_metadata=target_metadata,
+        version_table="alembic_version_tenant_service",
+    )
     with context.begin_transaction():
         context.run_migrations()
 
 
 async def run_async_migrations() -> None:
     """Run migrations in 'online' async mode."""
-    url = config.get_main_option("sqlalchemy.url")
+    url = _database_url()
     connectable = create_async_engine(url)
 
     async with connectable.connect() as connection:

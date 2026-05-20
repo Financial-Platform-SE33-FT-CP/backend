@@ -12,8 +12,21 @@ uv.lock
 # Environment
 .env
 
+# Local SQLite databases (dev)
+packages/auth-service/*.sqlite
+
+# Sensitive docs (contains credentials)
+NEON_DATABASE_SETUP.md
+
 # IDE
 .vscode/
 .idea/
 *.swp
 *.swo
+
+# others
+*.docx
+*.pdf
+*.xlsx
+*.zip
+*.tar.gz

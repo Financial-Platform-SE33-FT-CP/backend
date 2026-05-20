@@ -1,7 +1,8 @@
 from datetime import datetime
 from typing import Optional
+from uuid import UUID
 
-from pydantic import BaseModel, ConfigDict
+from pydantic import BaseModel, ConfigDict, Field, field_validator
 
 
 class CreateAccountRequest(BaseModel):
@@ -33,10 +34,19 @@ class AccountResponse(BaseModel):
     created_at: datetime
     updated_at: datetime
 
+    @field_validator("id", "tenant_id", "parent_id", mode="before")
+    @classmethod
+    def _uuid_fields_to_str(cls, value: object) -> str | None:
+        if value is None:
+            return None
+        if isinstance(value, UUID):
+            return str(value)
+        return str(value)
+
 
 class AccountTreeNode(BaseModel):
     id: str
     code: str
     name: str
     account_type: str
-    children: list["AccountTreeNode"] = []
+    children: list["AccountTreeNode"] = Field(default_factory=list)

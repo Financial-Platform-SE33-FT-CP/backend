@@ -1,20 +1,19 @@
 """Audit SQLAlchemy models."""
+
 from __future__ import annotations
 
 import uuid
 from datetime import datetime
 
-from sqlalchemy import DateTime, JSON, String
+from sqlalchemy import JSON, DateTime, String
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import DeclarativeBase, Mapped, mapped_column
+from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.sql import func
 
-
-class AuditBase(DeclarativeBase):
-    pass
+from accounting_shared.database import Base
 
 
-class AuditLogModel(AuditBase):
+class AuditLogModel(Base):
     """SQLAlchemy model for the audit_logs table."""
 
     __tablename__ = "audit_logs"

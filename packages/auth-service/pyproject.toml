@@ -5,6 +5,7 @@ description = "Authentication and authorization service for the Accounting Platf
 requires-python = ">=3.12"
 dependencies = [
     "fastapi[standard]",
+    "fastapi-mail",
     "pydantic",
     "pydantic-settings",
     "sqlalchemy[asyncio]",
@@ -12,21 +13,11 @@ dependencies = [
     "structlog",
     "python-jose",
     "httpx",
-    "bcrypt>=4.2.0",
+    "bcrypt>=4.2.0,<5",
     "alembic",
     "shared-lib",
 ]
 
-[project.optional-dependencies]
-dev = [
-    "pytest",
-    "pytest-asyncio",
-    "pytest-cov",
-    "ruff",
-    "black",
-    "isort",
-    "mypy",
-]
 
 [build-system]
 requires = ["hatchling"]
@@ -40,16 +31,16 @@ line-length = 100
 select = ["E", "F", "I", "N", "W", "UP", "B", "A", "C4", "SIM", "ARG", "PTH", "PL"]
 ignore = ["E501"]
 
+[tool.ruff.lint.per-file-ignores]
+"tests/**" = ["PLR2004", "PLC0415"]
+"src/**/deps.py" = ["B008"]
+"src/**/interfaces/api/router.py" = ["B008"]
+"src/**/application/services.py" = ["PLR2004"]
+"src/**/interfaces/api/schemas.py" = ["PLR2004"]
+"src/**/domain/value_objects.py" = ["PLR2004"]
+
 [tool.ruff.format]
 quote-style = "double"
-
-[tool.black]
-line-length = 100
-target-version = ["py312"]
-
-[tool.isort]
-profile = "black"
-line_length = 100
 
 [tool.mypy]
 python_version = "3.12"
@@ -61,3 +52,13 @@ exclude = ["alembic/", "tests/"]
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
+
+[dependency-groups]
+dev = [
+    "pytest>=8.3.0",
+    "pytest-asyncio>=0.24.0",
+    "pytest-cov>=6.0.0",
+    "ruff>=0.8.0",
+    "mypy>=1.13.0",
+    "testcontainers[postgres]>=4.9.0",
+]

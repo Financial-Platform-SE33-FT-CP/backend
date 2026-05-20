@@ -107,9 +107,7 @@ class COAService:
 
         return [build_node(a) for a in children_map.get(None, [])]
 
-    async def disable_account(
-        self, account_id: AccountId, tenant_id: TenantId
-    ) -> AccountResponse:
+    async def disable_account(self, account_id: AccountId, tenant_id: TenantId) -> AccountResponse:
         account = await self._repository.get_by_id(account_id, tenant_id)
         if not account:
             raise AccountNotFoundError(str(account_id))
