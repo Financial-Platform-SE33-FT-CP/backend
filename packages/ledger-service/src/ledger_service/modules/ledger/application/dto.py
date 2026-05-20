@@ -1,18 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict
-
-
-class JournalEntryDTO(BaseModel):
-    model_config = ConfigDict(from_attributes=True)
-
-    id: str
-    tenant_id: str
-    entry_date: date
-    reference: str
-    description: str
-    created_at: datetime
+from pydantic import BaseModel, ConfigDict, Field
 
 
 class JournalEntryLineDTO(BaseModel):
@@ -24,7 +13,38 @@ class JournalEntryLineDTO(BaseModel):
     account_id: str
     debit_amount: Decimal
     credit_amount: Decimal
-    description: str
+    description: str = ""
+
+
+class JournalEntryDTO(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    tenant_id: str
+    entry_date: date
+    reference: str
+    description: str = ""
+    source_type: str = "manual"
+    source_id: str | None = None
+    created_by: str = ""
+    is_reversal: bool = False
+    reversed_entry_id: str | None = None
+    created_at: datetime
+    lines: list[JournalEntryLineDTO] = Field(default_factory=list)
+
+
+class CreateJournalEntryLineDTO(BaseModel):
+    account_id: str
+    debit_amount: Decimal = Field(default_factory=Decimal)
+    credit_amount: Decimal = Field(default_factory=Decimal)
+    description: str = ""
+
+
+class CreateJournalEntryDTO(BaseModel):
+    entry_date: date
+    reference: str
+    description: str = ""
+    lines: list[CreateJournalEntryLineDTO] = Field(..., min_length=2)
 
 
 class AccountLedgerTransactionDTO(BaseModel):
