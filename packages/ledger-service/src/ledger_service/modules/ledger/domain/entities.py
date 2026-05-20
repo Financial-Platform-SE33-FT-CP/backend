@@ -44,15 +44,11 @@ class JournalEntry:
 
     @property
     def total_debit(self) -> Decimal:
-        return sum(
-            (line.debit_amount for line in self.lines), Decimal("0.00")
-        )
+        return sum((line.debit_amount for line in self.lines), Decimal("0.00"))
 
     @property
     def total_credit(self) -> Decimal:
-        return sum(
-            (line.credit_amount for line in self.lines), Decimal("0.00")
-        )
+        return sum((line.credit_amount for line in self.lines), Decimal("0.00"))
 
     @property
     def is_balanced(self) -> bool:
@@ -61,6 +57,38 @@ class JournalEntry:
     @property
     def has_lines(self) -> bool:
         return len(self.lines) >= 2
+
+
+@dataclass(frozen=True)
+class LedgerAccountSnapshot:
+    id: str
+    code: str
+    name: str
+    account_type: str
+
+
+@dataclass(frozen=True)
+class AccountLedgerTransaction:
+    journal_line_id: str
+    journal_entry_id: str
+    entry_date: date
+    reference: str
+    source_type: str | None
+    entry_description: str | None
+    line_description: str | None
+    debit_amount: Decimal
+    credit_amount: Decimal
+    created_at: datetime
+
+
+@dataclass(frozen=True)
+class TrialBalanceAccountAggregate:
+    account_id: str
+    account_code: str
+    account_name: str
+    account_type: str
+    total_debit: Decimal
+    total_credit: Decimal
 
 
 @dataclass

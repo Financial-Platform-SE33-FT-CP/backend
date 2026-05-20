@@ -1,12 +1,18 @@
 from abc import ABC, abstractmethod
 from datetime import date
+from decimal import Decimal
 from uuid import UUID
 
-from ledger_service.modules.ledger.domain.entities import AccountingPeriod, JournalEntry
+from ledger_service.modules.ledger.domain.entities import (
+    AccountingPeriod,
+    AccountLedgerTransaction,
+    JournalEntry,
+    LedgerAccountSnapshot,
+    TrialBalanceAccountAggregate,
+)
 
 
 class JournalEntryRepository(ABC):
-
     @abstractmethod
     async def get_by_id(self, tenant_id: str, entry_id: str) -> JournalEntry | None:
         """Retrieve a journal entry with its lines, scoped to tenant."""
@@ -24,13 +30,45 @@ class JournalEntryRepository(ABC):
     async def create(self, entry: JournalEntry) -> JournalEntry:
         """Persist a new journal entry with its lines in a single transaction."""
 
-
-class AccountingPeriodRepository(ABC):
+    @abstractmethod
+    async def get_account_snapshot(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+    ) -> LedgerAccountSnapshot | None: ...
 
     @abstractmethod
-    async def find_by_date(
-        self, tenant_id: UUID, target_date: date
-    ) -> AccountingPeriod | None:
+    async def get_account_balance_before(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        before_date: date,
+    ) -> Decimal: ...
+
+    @abstractmethod
+    async def list_account_transactions(
+        self,
+        *,
+        tenant_id: str,
+        account_id: str,
+        from_date: date | None,
+        to_date: date | None,
+    ) -> list[AccountLedgerTransaction]: ...
+
+    @abstractmethod
+    async def get_trial_balance_rows(
+        self,
+        *,
+        tenant_id: str,
+        as_of_date: date | None,
+    ) -> list[TrialBalanceAccountAggregate]: ...
+
+
+class AccountingPeriodRepository(ABC):
+    @abstractmethod
+    async def find_by_date(self, tenant_id: UUID, target_date: date) -> AccountingPeriod | None:
         """Find the accounting period that contains *target_date*."""
 
     @abstractmethod

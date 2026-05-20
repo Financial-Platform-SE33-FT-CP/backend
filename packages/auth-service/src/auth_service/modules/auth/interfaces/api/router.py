@@ -23,6 +23,7 @@ from auth_service.modules.auth.interfaces.api.schemas import (
     RegisterAPIResponseSchema,
     RegisterRequestSchema,
     ResendVerificationCodeRequestSchema,
+    ResendVerificationCodeResponseSchema,
     TokenResponseSchema,
     VerifyEmailCodeRequestSchema,
 )
@@ -38,7 +39,6 @@ router = APIRouter(tags=["auth"])
     responses={
         409: {"model": ErrorResponseSchema, "description": "Email already exists"},
         422: {"model": ErrorResponseSchema, "description": "Validation error"},
-        503: {"model": ErrorResponseSchema, "description": "Verification email failed to send"},
     },
 )
 async def register(
@@ -62,6 +62,7 @@ async def register(
         created_at=u.created_at,
         message=result.message,
         verification_code=result.verification_code,
+        verification_email_sent=result.verification_email_sent,
     )
 
 
@@ -109,19 +110,24 @@ async def verify_email_code(
 
 @router.post(
     "/resend-verification-code",
-    response_model=MessageResponseSchema,
+    response_model=ResendVerificationCodeResponseSchema,
+    response_model_exclude_none=True,
     responses={
         422: {"model": ErrorResponseSchema, "description": "Validation error"},
+        503: {"model": ErrorResponseSchema, "description": "Verification email failed to send"},
     },
 )
 async def resend_verification_code(
     body: ResendVerificationCodeRequestSchema,
     auth_service: AuthService = Depends(get_auth_service),
-) -> MessageResponseSchema:
+) -> ResendVerificationCodeResponseSchema:
     """Resend verification code (generic response; anti-enumeration)."""
     dto = ResendVerificationCodeRequest(email=body.email)
-    msg = await auth_service.resend_verification_code(str(dto.email))
-    return MessageResponseSchema(message=msg)
+    result = await auth_service.resend_verification_code(str(dto.email))
+    return ResendVerificationCodeResponseSchema(
+        message=result.message,
+        verification_code=result.verification_code,
+    )
 
 
 @router.post(
