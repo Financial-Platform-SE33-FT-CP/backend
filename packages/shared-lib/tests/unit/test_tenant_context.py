@@ -132,9 +132,8 @@ class TestTenantContextMiddleware:
 
         client = TestClient(app)
         # UUID with braces
-        response = client.get("/test", headers={"X-Request-ID": f"{{{tenant_id}}}"})
+        response = client.get("/test", headers={"X-Tenant-ID": f"{{{tenant_id}}}"})
 
-        # This should fail because braces are not valid UUID format
+        # Braces are stripped by the middleware — UUID is parsed successfully
         assert response.status_code == 200
-        # The middleware will fail to parse and leave tenant_id as None
-        assert response.json()["tenant_id"] == "None"
+        assert response.json()["tenant_id"] == str(tenant_id)
