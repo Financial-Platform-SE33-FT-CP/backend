@@ -38,9 +38,7 @@ def tenant_service(mock_repository: MagicMock) -> TenantService:
 @pytest_asyncio.fixture
 async def client(app: FastAPI, tenant_service: TenantService) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides[get_tenant_service] = lambda: tenant_service
-    async with AsyncClient(
-        transport=ASGITransport(app=app), base_url="http://test"
-    ) as ac:
+    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
         yield ac
 
 
