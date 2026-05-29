@@ -8,7 +8,7 @@ from accounting_shared.config import SharedSettings
 _BACKEND_ROOT_ENV = Path(__file__).resolve().parents[4] / ".env"
 
 
-class LedgerSettings(SharedSettings):
+class LedgerSettings(SharedSettings):  # type: ignore[misc]
     """Settings for the ledger service."""
 
     model_config = SettingsConfigDict(

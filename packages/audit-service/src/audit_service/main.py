@@ -20,7 +20,7 @@ from audit_service.modules.audit.interfaces.api.router import router as audit_ro
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: setup and teardown."""
-    settings = AuditSettings()  # type: ignore[call-arg]
+    settings = AuditSettings()
     setup_logging(log_level=settings.log_level)
 
     engine = create_engine(settings)

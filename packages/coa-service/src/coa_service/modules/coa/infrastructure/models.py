@@ -19,7 +19,7 @@ class AccountType(StrEnum):
     EXPENSE = "expense"
 
 
-class AccountModel(Base):
+class AccountModel(Base):  # type: ignore[misc]
     """Chart of accounts row; owned by a tenant."""
 
     __tablename__ = "chart_of_accounts"

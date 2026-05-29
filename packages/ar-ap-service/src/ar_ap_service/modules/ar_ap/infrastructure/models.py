@@ -12,7 +12,7 @@ from sqlalchemy.schema import UniqueConstraint
 Base = declarative_base()
 
 
-class CustomerModel(Base):
+class CustomerModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "customers"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -27,7 +27,7 @@ class CustomerModel(Base):
     credit_terms_days = Column(Integer, nullable=True)
 
 
-class VendorModel(Base):
+class VendorModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "vendors"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -41,7 +41,7 @@ class VendorModel(Base):
     email = Column(String(254), nullable=True)
 
 
-class GstCodeModel(Base):
+class GstCodeModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "gst_codes"
     __table_args__ = (UniqueConstraint("tenant_id", "code", name="uq_gst_codes_tenant_code"),)
 
@@ -57,7 +57,7 @@ class GstCodeModel(Base):
     gst_kind = Column(String(16), nullable=False)
 
 
-class InvoiceModel(Base):
+class InvoiceModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "invoices"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -90,7 +90,7 @@ class InvoiceModel(Base):
     payments = relationship("PaymentModel", back_populates="invoice")
 
 
-class InvoiceLineModel(Base):
+class InvoiceLineModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "invoice_lines"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -112,7 +112,7 @@ class InvoiceLineModel(Base):
     line_total = Column(Numeric(18, 2), nullable=False)
 
 
-class BillModel(Base):
+class BillModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "bills"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -142,7 +142,7 @@ class BillModel(Base):
     created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
 
 
-class BillLineModel(Base):
+class BillLineModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "bill_lines"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -162,7 +162,7 @@ class BillLineModel(Base):
     gst_rate = Column(Numeric(8, 4), nullable=True)
 
 
-class BankAccountModel(Base):
+class BankAccountModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "bank_accounts"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -178,7 +178,7 @@ class BankAccountModel(Base):
     opening_balance = Column(Numeric(18, 2), nullable=False, default=Decimal("0.00"))
 
 
-class BankTransactionModel(Base):
+class BankTransactionModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "bank_transactions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -205,7 +205,7 @@ class BankTransactionModel(Base):
     )
 
 
-class GstTransactionModel(Base):
+class GstTransactionModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "gst_transactions"
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -227,7 +227,7 @@ class GstTransactionModel(Base):
     reporting_period = Column(String(32), nullable=True)
 
 
-class PaymentModel(Base):
+class PaymentModel(Base):  # type: ignore[misc, valid-type]
     """SQLAlchemy model for the payments table."""
 
     __tablename__ = "payments"

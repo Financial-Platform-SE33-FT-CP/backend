@@ -9,6 +9,7 @@ from fastapi_mail import (
     MessageType,
     MultipartSubtypeEnum,
 )
+from pydantic import EmailStr
 
 from auth_service.config import AuthSettings
 
@@ -66,7 +67,7 @@ class EmailService:
 
         message = MessageSchema(
             subject=subject,
-            recipients=[to_email],
+            recipients=[EmailStr(to_email)],  # type: ignore[list-item]
             body=html,
             alternative_body=plain,
             subtype=MessageType.html,

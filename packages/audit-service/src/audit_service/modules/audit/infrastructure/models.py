@@ -13,7 +13,7 @@ from sqlalchemy.sql import func
 from accounting_shared.database import Base
 
 
-class AuditLogModel(Base):
+class AuditLogModel(Base):  # type: ignore[misc]
     """SQLAlchemy model for the audit_logs table."""
 
     __tablename__ = "audit_logs"
@@ -36,7 +36,7 @@ class AuditLogModel(Base):
     action: Mapped[str] = mapped_column(String(255), nullable=False)
     entity_type: Mapped[str] = mapped_column(String(255), nullable=False)
     entity_id: Mapped[str] = mapped_column(String(255), nullable=False)
-    changes: Mapped[dict | None] = mapped_column(JSON, nullable=True)
+    changes: Mapped[dict[str, object] | None] = mapped_column(JSON, nullable=True)
     timestamp: Mapped[datetime] = mapped_column(
         DateTime(timezone=True),
         server_default=func.now(),

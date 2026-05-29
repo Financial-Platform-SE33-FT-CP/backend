@@ -54,7 +54,7 @@ class ServiceUnavailableError(DomainException):
     detail = "Service temporarily unavailable."
 
 
-def _handler(request: Exception, exc: DomainException) -> JSONResponse:  # type: ignore[override]
+def _handler(request: Exception, exc: DomainException) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.detail},

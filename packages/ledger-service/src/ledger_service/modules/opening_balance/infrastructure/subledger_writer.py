@@ -42,11 +42,11 @@ class OpeningSubledgerWriter:
         result = await self._session.execute(stmt)
         existing = result.scalars().first()
         if existing:
-            return existing.id
+            return uuid.UUID(existing.id)
         customer = CustomerModel(tenant_id=tenant_id, name=name)
         self._session.add(customer)
         await self._session.flush()
-        return customer.id
+        return uuid.UUID(customer.id)
 
     async def _get_or_create_vendor(self, tenant_id: uuid.UUID, name: str) -> uuid.UUID:
         stmt = select(VendorModel).where(
@@ -56,11 +56,11 @@ class OpeningSubledgerWriter:
         result = await self._session.execute(stmt)
         existing = result.scalars().first()
         if existing:
-            return existing.id
+            return uuid.UUID(existing.id)
         vendor = VendorModel(tenant_id=tenant_id, name=name)
         self._session.add(vendor)
         await self._session.flush()
-        return vendor.id
+        return uuid.UUID(vendor.id)
 
     async def create_ar_aging(
         self,

@@ -3,6 +3,7 @@
 from __future__ import annotations
 
 from datetime import date
+from typing import Any
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -55,7 +56,7 @@ class OpeningBalanceService:
 
     async def validate_import(
         self, tenant_id: str, parsed: ParsedOpeningImport
-    ) -> tuple[dict, list[ValidationIssue]]:
+    ) -> tuple[dict[str, Any], list[ValidationIssue]]:
         preview, _resolved, issues = await self._validator.validate(
             tenant_id,
             parsed,
@@ -83,7 +84,7 @@ class OpeningBalanceService:
         entry_date: date,
         created_by: str | None,
         reference: str = "OPENING",
-    ) -> dict:
+    ) -> dict[str, Any]:
         preview, resolved_lines, issues = await self._validator.validate(
             tenant_id,
             parsed,

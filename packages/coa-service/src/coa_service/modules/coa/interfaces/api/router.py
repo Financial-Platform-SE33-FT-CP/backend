@@ -37,7 +37,7 @@ async def list_accounts(
     _: Annotated[None, Depends(RequireCoaPermission(P_COA_READ))],
     tenant_id: TenantId = Depends(require_tenant_id),
     service: COAService = Depends(get_coa_service),
-):
+) -> list[AccountResponse]:
     return await service.list_accounts(tenant_id)
 
 
@@ -47,7 +47,7 @@ async def create_account(
     _: Annotated[None, Depends(RequireCoaPermission(P_COA_CREATE))],
     tenant_id: TenantId = Depends(require_tenant_id),
     service: COAService = Depends(get_coa_service),
-):
+) -> AccountResponse:
     try:
         return await service.create_account(tenant_id, body)
     except AccountCodeExistsError as e:
@@ -65,7 +65,7 @@ async def update_account(
     _: Annotated[None, Depends(RequireCoaPermission(P_COA_UPDATE))],
     tenant_id: TenantId = Depends(require_tenant_id),
     service: COAService = Depends(get_coa_service),
-):
+) -> AccountResponse:
     try:
         return await service.update_account(account_id, tenant_id, body)
     except AccountNotFoundError as e:
@@ -79,7 +79,7 @@ async def get_account_tree(
     _: Annotated[None, Depends(RequireCoaPermission(P_COA_READ))],
     tenant_id: TenantId = Depends(require_tenant_id),
     service: COAService = Depends(get_coa_service),
-):
+) -> list[AccountTreeNode]:
     return await service.get_account_tree(tenant_id)
 
 
@@ -89,7 +89,7 @@ async def seed_default_accounts(
     tenant_id: TenantId = Depends(require_tenant_id),
     service: COAService = Depends(get_coa_service),
     settings: COASettings = Depends(get_settings),
-):
+) -> list[AccountResponse]:
     return await service.seed_default_coa(tenant_id, settings)
 
 
@@ -99,7 +99,7 @@ async def deactivate_account(
     _: Annotated[None, Depends(RequireCoaPermission(P_COA_UPDATE))],
     tenant_id: TenantId = Depends(require_tenant_id),
     service: COAService = Depends(get_coa_service),
-):
+) -> AccountResponse:
     try:
         return await service.disable_account(account_id, tenant_id)
     except AccountNotFoundError as e:

@@ -17,5 +17,5 @@ class AuditLogDTO:
     action: str
     entity_type: str
     entity_id: str
-    changes: dict | None = None
+    changes: dict[str, object] | None = None
     timestamp: datetime | None = None

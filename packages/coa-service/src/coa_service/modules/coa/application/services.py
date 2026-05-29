@@ -124,20 +124,21 @@ class COAService:
     ) -> list[AccountResponse]:
         created: list[AccountResponse] = []
         for item in settings.default_coa_accounts:
-            existing = await self._repository.get_by_code(item["code"], tenant_id)
+            code = str(item["code"])
+            existing = await self._repository.get_by_code(code, tenant_id)
             if existing:
                 continue
             now = datetime.utcnow()
             account = Account(
                 id=new_account_id(),
                 tenant_id=tenant_id,
-                code=item["code"],
-                name=item["name"],
-                account_type=item["type"],
+                code=code,
+                name=str(item["name"]),
+                account_type=str(item["type"]),
                 parent_id=None,
                 is_active=True,
                 is_system=True,
-                description=item.get("description", ""),
+                description=str(item.get("description", "")),
                 created_at=now,
                 updated_at=now,
             )
