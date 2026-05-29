@@ -30,14 +30,17 @@ async def _seed_tenant(session_factory) -> None:
 
 
 async def _seed_open_period(session_factory) -> None:
+    from calendar import monthrange
+
     from ledger_service.modules.ledger.infrastructure.models import AccountingPeriodModel
 
     today = date.today()
+    _, last_day = monthrange(today.year, today.month)
     async with session_factory() as session:
         period = AccountingPeriodModel(
             tenant_id=uuid.UUID(TENANT_ID_STR),
             start_date=today.replace(day=1),
-            end_date=today.replace(day=28),
+            end_date=today.replace(day=last_day),
             is_closed=False,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
@@ -63,14 +66,17 @@ async def _seed_closed_period(session_factory) -> None:
 
 
 async def _seed_closed_period_today(session_factory) -> None:
+    from calendar import monthrange
+
     from ledger_service.modules.ledger.infrastructure.models import AccountingPeriodModel
 
     today = date.today()
+    _, last_day = monthrange(today.year, today.month)
     async with session_factory() as session:
         period = AccountingPeriodModel(
             tenant_id=uuid.UUID(TENANT_ID_STR),
             start_date=today.replace(day=1),
-            end_date=today.replace(day=28),
+            end_date=today.replace(day=last_day),
             is_closed=True,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
