@@ -134,6 +134,7 @@ async def test_register_email_send_failure_returns_success_with_flag() -> None:
     assert "could not be sent" in response.message.lower()
     repo.commit.assert_awaited_once()
 
+
 @pytest.mark.asyncio
 async def test_resend_email_send_failure_raises() -> None:
     repo = AsyncMock()

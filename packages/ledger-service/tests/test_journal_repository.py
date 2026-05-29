@@ -4,9 +4,9 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from accounting_shared.exceptions import NotFoundError, ValidationError
 from sqlalchemy import select
 
+from accounting_shared.exceptions import ValidationError
 from ledger_service.modules.ledger.domain.entities import JournalEntry
 from ledger_service.modules.ledger.infrastructure.models import (
     JournalEntryLineModel,
@@ -49,9 +49,7 @@ async def test_create_opening_entry_persists_balanced_lines(session) -> None:
     assert header.source_type == "opening_balance"
 
     lines = await session.execute(
-        select(JournalEntryLineModel).where(
-            JournalEntryLineModel.journal_entry_id == entry_id
-        )
+        select(JournalEntryLineModel).where(JournalEntryLineModel.journal_entry_id == entry_id)
     )
     assert len(lines.scalars().all()) == 2
 

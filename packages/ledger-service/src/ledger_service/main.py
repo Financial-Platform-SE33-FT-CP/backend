@@ -1,24 +1,22 @@
 from contextlib import asynccontextmanager
 
+import structlog
 from fastapi import FastAPI, Request
 from fastapi.middleware.cors import CORSMiddleware
 from fastapi.responses import JSONResponse
-
-import structlog
 
 from accounting_shared.database import create_engine, create_session_factory
 from accounting_shared.exceptions import register_exception_handlers
 from accounting_shared.logging import setup_logging
 from accounting_shared.middleware.request_id import RequestIDMiddleware
 from accounting_shared.middleware.tenant_context import TenantContextMiddleware
-
 from ledger_service.deps import get_settings
 from ledger_service.modules.ledger.interfaces.api.router import router as ledger_router
-from ledger_service.modules.opening_balance.interfaces.api.router import (
-    router as opening_balance_router,
-)
 from ledger_service.modules.opening_balance.infrastructure.orm_registry import (
     register_opening_balance_orm_metadata,
+)
+from ledger_service.modules.opening_balance.interfaces.api.router import (
+    router as opening_balance_router,
 )
 
 logger = structlog.get_logger(__name__)
@@ -54,9 +52,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     @app.exception_handler(Exception)
-    async def unhandled_exception_handler(
-        request: Request, exc: Exception
-    ) -> JSONResponse:
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         logger.error("unhandled_exception", exc=str(exc), path=str(request.url.path))
         return JSONResponse(
             status_code=500,

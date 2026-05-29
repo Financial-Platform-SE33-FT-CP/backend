@@ -1,19 +1,19 @@
 from __future__ import annotations
 
 import uuid
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
 
 import pytest
+
 from accounting_shared.exceptions import NotFoundError, ValidationError
 from coa_service.modules.coa.infrastructure.models import AccountModel, AccountType
-
 from ledger_service.modules.ledger.application.services import LedgerService
 from ledger_service.modules.ledger.infrastructure.repository import SqlAlchemyJournalEntryRepository
 
 
 def _now_utc() -> datetime:
-    return datetime.now(timezone.utc)
+    return datetime.now(UTC)
 
 
 async def _create_account(

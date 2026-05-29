@@ -3,13 +3,11 @@
 from __future__ import annotations
 
 from datetime import date
-from decimal import Decimal
 
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from accounting_shared.exceptions import ValidationError
-
 from ledger_service.modules.ledger.infrastructure.models import JournalEntryModel
 from ledger_service.modules.ledger.infrastructure.repository import (
     SqlAlchemyJournalEntryRepository,
@@ -74,9 +72,7 @@ class OpeningBalanceService:
                 "ar_aging_total": str(preview.ar_aging_total),
                 "ap_aging_total": str(preview.ap_aging_total),
             },
-            "errors": [
-                {"row": e.row, "field": e.field, "message": e.message} for e in issues
-            ],
+            "errors": [{"row": e.row, "field": e.field, "message": e.message} for e in issues],
         }, issues
 
     async def import_opening_balance(

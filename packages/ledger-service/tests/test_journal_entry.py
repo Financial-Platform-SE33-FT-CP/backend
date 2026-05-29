@@ -1,7 +1,6 @@
 import uuid
 from datetime import UTC, date, datetime
 
-import pytest
 from fastapi.testclient import TestClient
 
 HEADERS_TEMPLATE = {"X-Tenant-ID": "00000000-0000-0000-0000-000000000001"}
@@ -104,9 +103,7 @@ class TestCreateJournalEntry:
         assert data["lines"][0]["debit_amount"] == "100.00"
         assert data["lines"][1]["credit_amount"] == "100.00"
 
-    def test_create_returns_immutable_entry(
-        self, client: TestClient, valid_payload: dict
-    ):
+    def test_create_returns_immutable_entry(self, client: TestClient, valid_payload: dict):
         import asyncio
 
         asyncio.run(_seed_tenant(client.app.state.session_factory))
@@ -263,9 +260,7 @@ class TestCreateJournalEntry:
         assert response.status_code == 409
         assert "closed" in response.json()["detail"].lower()
 
-    def test_missing_tenant_id_rejected(
-        self, client: TestClient, valid_payload: dict
-    ):
+    def test_missing_tenant_id_rejected(self, client: TestClient, valid_payload: dict):
         response = client.post("/ledger/journal-entries", json=valid_payload)
         assert response.status_code == 422
 
@@ -273,9 +268,7 @@ class TestCreateJournalEntry:
 class TestGetJournalEntry:
     """GET /ledger/journal-entries/{entry_id}"""
 
-    def test_get_by_id_returns_entry_with_lines(
-        self, client: TestClient, valid_payload: dict
-    ):
+    def test_get_by_id_returns_entry_with_lines(self, client: TestClient, valid_payload: dict):
         import asyncio
 
         asyncio.run(_seed_tenant(client.app.state.session_factory))

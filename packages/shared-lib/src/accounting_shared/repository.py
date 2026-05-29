@@ -4,7 +4,7 @@ from __future__ import annotations
 
 import uuid
 from abc import ABC, abstractmethod
-from typing import Generic, TypeVar
+from typing import TypeVar
 
 from sqlalchemy.ext.asyncio import AsyncSession
 
@@ -13,7 +13,7 @@ from accounting_shared.types import TenantId
 T = TypeVar("T")
 
 
-class BaseRepository(ABC, Generic[T]):
+class BaseRepository[T](ABC):
     """Abstract base repository providing CRUD conventions.
 
     Concrete subclasses must provide a *session* and implement the abstract

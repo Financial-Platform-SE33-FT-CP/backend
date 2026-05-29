@@ -6,8 +6,12 @@ import uuid
 from collections.abc import AsyncGenerator
 from functools import lru_cache
 
+from fastapi import Depends, Request
+from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
+from sqlalchemy.ext.asyncio import AsyncSession
+
 from accounting_shared.database import get_session
-from accounting_shared.http_internal import post_json
 from accounting_shared.exceptions import (
     ForbiddenError,
     NotFoundError,
@@ -15,13 +19,9 @@ from accounting_shared.exceptions import (
     UnauthorizedError,
     ValidationError,
 )
+from accounting_shared.http_internal import post_json
 from accounting_shared.middleware.tenant_context import get_current_tenant_id
 from accounting_shared.types import TenantId, UserId
-from fastapi import Depends, Request
-from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
-from jose import JWTError, jwt
-from sqlalchemy.ext.asyncio import AsyncSession
-
 from ledger_service.config import LedgerSettings
 from ledger_service.modules.ledger.application.services import LedgerService
 from ledger_service.modules.ledger.infrastructure.repository import (
@@ -105,22 +105,16 @@ async def authorize_via_tenant_service(
             },
         )
     except OSError as e:
-        raise ServiceUnavailableError(
-            "Unable to reach tenant authorization service."
-        ) from e
+        raise ServiceUnavailableError("Unable to reach tenant authorization service.") from e
     if status_code == 401:
-        raise ServiceUnavailableError(
-            "Tenant authorization service rejected the internal token."
-        )
+        raise ServiceUnavailableError("Tenant authorization service rejected the internal token.")
     if status_code != 200:
         detail = data if isinstance(data, str) else str(data)
         raise ServiceUnavailableError(
             f"Tenant authorization service returned HTTP {status_code}: {detail}"
         )
     if not isinstance(data, dict):
-        raise ServiceUnavailableError(
-            "Tenant authorization service returned an invalid response."
-        )
+        raise ServiceUnavailableError("Tenant authorization service returned an invalid response.")
     if data.get("allowed") is True:
         return
     reason = data.get("reason")

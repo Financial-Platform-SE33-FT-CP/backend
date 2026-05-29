@@ -11,13 +11,13 @@ import importlib
 import logging
 import uuid
 from collections.abc import AsyncGenerator, Iterator
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
-from sqlalchemy import Date, String, Table, Uuid, text
+from sqlalchemy import String, Table, Uuid, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from coa_service.modules.coa.infrastructure.models import AccountModel
@@ -57,13 +57,16 @@ async def tables(engine):
             AccountModel.__table__.create(sync_conn, checkfirst=True)
             JournalEntryModel.__table__.create(sync_conn, checkfirst=True)
             JournalEntryLineModel.__table__.create(sync_conn, checkfirst=True)
+
         await conn.run_sync(create_journal_tables)
     yield
     async with engine.begin() as conn:
+
         def drop_journal_tables(sync_conn) -> None:
             JournalEntryLineModel.__table__.drop(sync_conn, checkfirst=True)
             JournalEntryModel.__table__.drop(sync_conn, checkfirst=True)
             AccountModel.__table__.drop(sync_conn, checkfirst=True)
+
         await conn.run_sync(drop_journal_tables)
 
 
@@ -87,7 +90,7 @@ def _configure_env(monkeypatch: pytest.MonkeyPatch, sqlite_url: str) -> None:
 
 
 async def _create_all(engine: object) -> None:
-    from sqlalchemy import Column, MetaData
+    from sqlalchemy import Column
 
     from ledger_service.modules.ledger.infrastructure.models import Base
 

@@ -42,6 +42,7 @@ select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
 "src/**/deps.py" = ["B008"]
 "src/**/interfaces/api/router.py" = ["B008"]
 "src/**/interfaces/api/internal_router.py" = ["B008"]
+"src/**/interfaces/api/portal_router.py" = ["B008"]
 "tests/**" = ["E501", "I001", "PLC0415"]
 
 [dependency-groups]

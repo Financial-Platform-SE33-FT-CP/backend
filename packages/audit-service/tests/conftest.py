@@ -1,4 +1,5 @@
 """Test configuration for audit-service."""
+
 from __future__ import annotations
 
 import pytest

@@ -17,7 +17,6 @@ from ar_ap_service.modules.ar_ap.infrastructure.models import (
     InvoiceModel,
     VendorModel,
 )
-
 from ledger_service.modules.opening_balance.domain.entities import (
     ApAgingLine,
     ArAgingLine,
@@ -35,9 +34,7 @@ class OpeningSubledgerWriter:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def _get_or_create_customer(
-        self, tenant_id: uuid.UUID, name: str
-    ) -> uuid.UUID:
+    async def _get_or_create_customer(self, tenant_id: uuid.UUID, name: str) -> uuid.UUID:
         stmt = select(CustomerModel).where(
             CustomerModel.tenant_id == tenant_id,
             CustomerModel.name == name,
@@ -51,9 +48,7 @@ class OpeningSubledgerWriter:
         await self._session.flush()
         return customer.id
 
-    async def _get_or_create_vendor(
-        self, tenant_id: uuid.UUID, name: str
-    ) -> uuid.UUID:
+    async def _get_or_create_vendor(self, tenant_id: uuid.UUID, name: str) -> uuid.UUID:
         stmt = select(VendorModel).where(
             VendorModel.tenant_id == tenant_id,
             VendorModel.name == name,

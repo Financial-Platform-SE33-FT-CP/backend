@@ -107,6 +107,7 @@ class RegisterResponse(BaseModel):
     verification_code: str | None = None
     verification_email_sent: bool = True
 
+
 class ResendVerificationResponse(BaseModel):
     """Resend verification code API response."""
 

@@ -8,7 +8,6 @@ from datetime import date
 from decimal import Decimal, InvalidOperation
 
 from accounting_shared.exceptions import ValidationError
-
 from ledger_service.modules.opening_balance.domain.entities import (
     ApAgingLine,
     ArAgingLine,
@@ -133,7 +132,7 @@ def _parse_date(raw: str, *, row: int) -> date:
 def _resolve_section(raw: str, *, row: int) -> str:
     key = (raw or "").strip().lower()
     if key not in _SECTION_ALIASES:
-        allowed = ", ".join(sorted({v for v in _SECTION_ALIASES.values()}))
+        allowed = ", ".join(sorted(set(_SECTION_ALIASES.values())))
         msg = f"Row {row}: unknown section '{raw}'. Use one of: {allowed}."
         raise ValidationError(msg)
     return _SECTION_ALIASES[key]
@@ -141,10 +140,7 @@ def _resolve_section(raw: str, *, row: int) -> str:
 
 def parse_opening_balance_csv(content: str | bytes) -> ParsedOpeningImport:
     """Parse US-7 CSV into structured sections."""
-    if isinstance(content, bytes):
-        text = content.decode("utf-8-sig")
-    else:
-        text = content.lstrip("\ufeff")
+    text = content.decode("utf-8-sig") if isinstance(content, bytes) else content.lstrip("\ufeff")
 
     if not text.strip():
         raise ValidationError("CSV file is empty.")
@@ -177,9 +173,7 @@ def parse_opening_balance_csv(content: str | bytes) -> ParsedOpeningImport:
             if not code:
                 msg = f"Row {row_idx}: account_code is required for trial_balance rows."
                 raise ValidationError(msg)
-            debit = _parse_decimal(
-                raw_row.get(normalized["debit"], ""), row=row_idx, field="debit"
-            )
+            debit = _parse_decimal(raw_row.get(normalized["debit"], ""), row=row_idx, field="debit")
             credit = _parse_decimal(
                 raw_row.get(normalized["credit"], ""), row=row_idx, field="credit"
             )

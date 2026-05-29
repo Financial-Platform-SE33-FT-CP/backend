@@ -7,7 +7,6 @@ from collections.abc import AsyncGenerator
 from functools import lru_cache
 
 from accounting_shared.database import get_session
-from accounting_shared.http_internal import post_json
 from accounting_shared.exceptions import (
     ForbiddenError,
     NotFoundError,
@@ -15,6 +14,7 @@ from accounting_shared.exceptions import (
     UnauthorizedError,
     ValidationError,
 )
+from accounting_shared.http_internal import post_json
 from accounting_shared.middleware.tenant_context import get_current_tenant_id
 from accounting_shared.types import TenantId, UserId
 from fastapi import Depends

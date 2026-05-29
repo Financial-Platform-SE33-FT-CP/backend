@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from starlette import status
 
 
-class DomainException(Exception):
+class DomainException(Exception):  # noqa: N818
     """Base exception for all domain-level errors."""
 
     status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR
