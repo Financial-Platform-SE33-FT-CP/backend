@@ -15,6 +15,9 @@ on:
       - "backend/pyproject.toml"
       - ".github/workflows/ci-ar-ap-service.yml"
 
+permissions:
+  contents: write
+
 jobs:
   lint-and-type:
     name: Lint & Type Check
@@ -34,17 +37,45 @@ jobs:
 
       - name: Ruff check
         working-directory: .
-        run: uv run --package ar-ap-service ruff check --select E,W,F --ignore E501,F401 packages/ar-ap-service/src
+        run: |
+          uv run --package ar-ap-service ruff check --select E,W,F --ignore E501,F401 packages/ar-ap-service/src || {
+            echo "Ruff check failed. Attempting to fix..."
+            uv run --package ar-ap-service ruff check --fix --select E,W,F --ignore E501,F401 packages/ar-ap-service/src
+            echo "Files changed:"
+            git diff --name-only
+            if [ -n "$(git status --porcelain)" ]; then
+              git config --local user.email "github-actions[bot]@users.noreply.github.com"
+              git config --local user.name "github-actions[bot]"
+              git add packages/ar-ap-service/src
+              git commit -m "fix: auto-fix ruff lint issues in ar-ap-service [skip ci]"
+              git push
+              echo "Changes committed and pushed."
+            fi
+            exit 1
+          }
 
       - name: Ruff format check
         working-directory: .
-        run: uv run --package ar-ap-service ruff format --check packages/ar-ap-service/src
-        continue-on-error: true
+        run: |
+          uv run --package ar-ap-service ruff format --check packages/ar-ap-service/src || {
+            echo "Ruff format check failed. Attempting to fix..."
+            uv run --package ar-ap-service ruff format packages/ar-ap-service/src
+            echo "Files changed:"
+            git diff --name-only
+            if [ -n "$(git status --porcelain)" ]; then
+              git config --local user.email "github-actions[bot]@users.noreply.github.com"
+              git config --local user.name "github-actions[bot]"
+              git add packages/ar-ap-service/src
+              git commit -m "style: auto-format code in ar-ap-service [skip ci]"
+              git push
+              echo "Changes committed and pushed."
+            fi
+            exit 1
+          }
 
       - name: Mypy
         working-directory: .
         run: uv run --package ar-ap-service mypy --ignore-missing-imports packages/ar-ap-service/src
-        continue-on-error: true
 
   unit-tests:
     name: Unit Tests
