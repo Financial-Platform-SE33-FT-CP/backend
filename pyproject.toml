@@ -27,7 +27,10 @@ line-length = 100
 
 [tool.ruff.lint]
 select = ["E", "F", "I", "N", "W", "UP", "B", "C4", "SIM"]
-ignore = ["B008"]  # FastAPI Depends() in default args is standard pattern
+
+[tool.ruff.lint.per-file-ignores]
+"*/deps.py" = ["B008"]
+"*/interfaces/api/router.py" = ["B008"]
 
 [tool.ruff.lint.isort]
 known-first-party = ["accounting_shared", "auth_service", "tenant_service", "coa_service", "ledger_service", "audit_service", "ar_ap_service"]

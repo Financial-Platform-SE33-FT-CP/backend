@@ -16,7 +16,7 @@ on:
       - ".github/workflows/ci-tenant-service.yml"
 
 permissions:
-  contents: write
+  contents: read
 
 jobs:
   lint-and-type:
@@ -37,41 +37,11 @@ jobs:
 
       - name: Ruff check
         working-directory: .
-        run: |
-          uv run --package tenant-service ruff check --select E,W,F --ignore E501,F401 packages/tenant-service/src || {
-            echo "Ruff check failed. Attempting to fix..."
-            uv run --package tenant-service ruff check --fix --select E,W,F --ignore E501,F401 packages/tenant-service/src
-            echo "Files changed:"
-            git diff --name-only
-            if [ -n "$(git status --porcelain)" ]; then
-              git config --local user.email "github-actions[bot]@users.noreply.github.com"
-              git config --local user.name "github-actions[bot]"
-              git add packages/tenant-service/src
-              git commit -m "fix: auto-fix ruff lint issues in tenant-service [skip ci]"
-              git push
-              echo "Changes committed and pushed."
-            fi
-            exit 1
-          }
+        run: uv run --package tenant-service ruff check --select E,W,F --ignore E501,F401 packages/tenant-service/src
 
       - name: Ruff format check
         working-directory: .
-        run: |
-          uv run --package tenant-service ruff format --check packages/tenant-service/src || {
-            echo "Ruff format check failed. Attempting to fix..."
-            uv run --package tenant-service ruff format packages/tenant-service/src
-            echo "Files changed:"
-            git diff --name-only
-            if [ -n "$(git status --porcelain)" ]; then
-              git config --local user.email "github-actions[bot]@users.noreply.github.com"
-              git config --local user.name "github-actions[bot]"
-              git add packages/tenant-service/src
-              git commit -m "style: auto-format code in tenant-service [skip ci]"
-              git push
-              echo "Changes committed and pushed."
-            fi
-            exit 1
-          }
+        run: uv run --package tenant-service ruff format --check packages/tenant-service/src
 
       - name: Mypy
         working-directory: .

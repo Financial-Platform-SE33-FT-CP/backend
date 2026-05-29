@@ -1,5 +1,6 @@
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncGenerator
 from unittest.mock import MagicMock
 
@@ -8,7 +9,7 @@ import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from accounting_shared.types import TenantId
+from accounting_shared.types import TenantId, UserId
 
 from tenant_service.deps import get_tenant_service
 from tenant_service.main import create_app
@@ -44,9 +45,9 @@ async def client(app: FastAPI, tenant_service: TenantService) -> AsyncGenerator[
 
 @pytest.fixture
 def sample_tenant_id() -> TenantId:
-    return TenantId("11111111-1111-1111-1111-111111111111")
+    return TenantId(uuid.UUID("11111111-1111-1111-1111-111111111111"))
 
 
 @pytest.fixture
-def sample_user_id() -> TenantId:
-    return TenantId("22222222-2222-2222-2222-222222222222")
+def sample_user_id() -> UserId:
+    return UserId(uuid.UUID("22222222-2222-2222-2222-222222222222"))
