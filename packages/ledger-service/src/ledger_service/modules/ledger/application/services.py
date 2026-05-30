@@ -198,6 +198,18 @@ class LedgerService:
                 "falls within a closed accounting period."
             )
 
+        # Validate all account_ids exist in Chart of Accounts
+        unique_account_ids = set(line.account_id for line in dto.lines)
+        for account_id in unique_account_ids:
+            snapshot = await self._journal_repo.get_account_snapshot(
+                tenant_id=tenant_id,
+                account_id=account_id,
+            )
+            if snapshot is None:
+                raise ValidationError(
+                    f"Account '{account_id}' not found in Chart of Accounts."
+                )
+
         entry = JournalEntry(
             tenant_id=tenant_id,
             entry_date=dto.entry_date,
