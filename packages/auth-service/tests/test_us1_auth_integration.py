@@ -83,7 +83,9 @@ def test_weak_password_rejected(client: TestClient) -> None:
     assert r.status_code == 422
 
 
-def test_register_creates_unverified_user(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_register_creates_unverified_user(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _patch_fixed_verification_code(monkeypatch)
     r = client.post(
         "/auth/register",
@@ -96,7 +98,9 @@ def test_register_creates_unverified_user(client: TestClient, monkeypatch: pytes
     client.email_send_mock.assert_awaited_once()  # type: ignore[attr-defined]
 
 
-def test_register_response_excludes_secrets(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_register_response_excludes_secrets(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _patch_fixed_verification_code(monkeypatch)
     r = client.post(
         "/auth/register", json={"email": "safe@example.com", "password": VALID_PASSWORD}
@@ -137,14 +141,15 @@ def test_non_production_register_includes_verification_code(
     assert body.get("verification_code") == FIXED_CODE
 
 
-def test_register_email_send_failure_returns_503(client_email_fail: TestClient) -> None:
+def test_register_email_send_failure_returns_201_with_flag(client_email_fail: TestClient) -> None:
     r = client_email_fail.post(
         "/auth/register",
         json={"email": "failmail@example.com", "password": VALID_PASSWORD},
     )
-    assert r.status_code == 503
-    assert "verification email could not be sent" in r.json()["detail"].lower()
-
+    assert r.status_code == 201
+    body = r.json()
+    assert body["verification_email_sent"] is False
+    assert "could not be sent" in body["message"].lower()
     engine = client_email_fail.app.state.engine
 
     async def _check() -> None:
@@ -178,7 +183,9 @@ def test_password_is_bcrypt_hashed(client: TestClient, monkeypatch: pytest.Monke
     asyncio.run(_check())
 
 
-def test_login_before_verification_rejected(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_login_before_verification_rejected(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _patch_fixed_verification_code(monkeypatch)
     email = "nv@example.com"
     client.post("/auth/register", json={"email": email, "password": VALID_PASSWORD})
@@ -186,7 +193,9 @@ def test_login_before_verification_rejected(client: TestClient, monkeypatch: pyt
     assert r.status_code == 401
 
 
-def test_verify_email_code_success_and_login(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_verify_email_code_success_and_login(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _patch_fixed_verification_code(monkeypatch)
     email = "ok@example.com"
     client.post("/auth/register", json={"email": email, "password": VALID_PASSWORD})
@@ -242,7 +251,9 @@ def test_expired_verification_code(client: TestClient, monkeypatch: pytest.Monke
     assert r.status_code == 401
 
 
-def test_used_verification_code_rejected(client: TestClient, monkeypatch: pytest.MonkeyPatch) -> None:
+def test_used_verification_code_rejected(
+    client: TestClient, monkeypatch: pytest.MonkeyPatch
+) -> None:
     _patch_fixed_verification_code(monkeypatch)
     email = "used@example.com"
     client.post("/auth/register", json={"email": email, "password": VALID_PASSWORD})

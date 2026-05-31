@@ -1,7 +1,7 @@
 """Dependency injection for AR/AP Service."""
 
+from collections.abc import AsyncGenerator
 from functools import lru_cache
-from typing import AsyncGenerator
 
 from fastapi import Request
 from sqlalchemy.ext.asyncio import AsyncSession

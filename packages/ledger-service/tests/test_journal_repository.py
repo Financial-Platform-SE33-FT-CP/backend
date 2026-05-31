@@ -4,9 +4,9 @@ from datetime import date
 from decimal import Decimal
 
 import pytest
-from accounting_shared.exceptions import NotFoundError, ValidationError
 from sqlalchemy import select
 
+from accounting_shared.exceptions import ValidationError
 from ledger_service.modules.ledger.domain.entities import JournalEntry
 from ledger_service.modules.ledger.infrastructure.models import (
     JournalEntryLineModel,
@@ -49,9 +49,7 @@ async def test_create_opening_entry_persists_balanced_lines(session) -> None:
     assert header.source_type == "opening_balance"
 
     lines = await session.execute(
-        select(JournalEntryLineModel).where(
-            JournalEntryLineModel.journal_entry_id == entry_id
-        )
+        select(JournalEntryLineModel).where(JournalEntryLineModel.journal_entry_id == entry_id)
     )
     assert len(lines.scalars().all()) == 2
 
@@ -71,7 +69,7 @@ async def test_get_by_id_returns_entry(session) -> None:
             {"account_id": "b", "debit_amount": Decimal("0"), "credit_amount": Decimal("5")},
         ],
     )
-    found = await repo.get_by_id(entry_id)
+    found = await repo.get_by_id("t1", entry_id)
     assert found.id == entry_id
 
 
@@ -110,8 +108,8 @@ async def test_create_domain_entry(session) -> None:
 @pytest.mark.asyncio
 async def test_get_by_id_raises_when_missing(session) -> None:
     repo = SqlAlchemyJournalEntryRepository(session)
-    with pytest.raises(NotFoundError):
-        await repo.get_by_id("missing-id")
+    result = await repo.get_by_id("t", "missing-id")
+    assert result is None
 
 
 @pytest.mark.asyncio

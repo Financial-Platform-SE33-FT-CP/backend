@@ -1,4 +1,4 @@
-"""Alembic environment configuration for audit-service (async, matches SharedSettings DATABASE_URL)."""
+"""Alembic environment configuration for audit-service (async, matches SharedSettings DATABASE_URL)."""  # noqa: E501
 
 from __future__ import annotations
 
@@ -12,7 +12,6 @@ from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
 from accounting_shared.database import Base
-
 from audit_service.modules.audit.infrastructure.models import AuditLogModel  # noqa: F401
 
 config = context.config

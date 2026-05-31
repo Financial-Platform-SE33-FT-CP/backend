@@ -105,3 +105,13 @@ class RegisterResponse(BaseModel):
     message: str
     user: RegisterUserSnippet
     verification_code: str | None = None
+    verification_email_sent: bool = True
+
+
+class ResendVerificationResponse(BaseModel):
+    """Resend verification code API response."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    message: str
+    verification_code: str | None = None

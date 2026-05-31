@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import pytest
-from accounting_shared.exceptions import ValidationError
 
+from accounting_shared.exceptions import ValidationError
 from ledger_service.modules.opening_balance.application.csv_parser import (
     opening_balance_csv_template,
     parse_opening_balance_csv,

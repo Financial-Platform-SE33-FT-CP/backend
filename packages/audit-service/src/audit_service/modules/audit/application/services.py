@@ -1,4 +1,5 @@
 """Audit application services."""
+
 from __future__ import annotations
 
 import uuid
@@ -14,8 +15,8 @@ class AuditService:
         action: str,
         entity_type: str,
         entity_id: str,
-        changes: dict | None = None,
-    ) -> dict:
+        changes: dict[str, object] | None = None,
+    ) -> dict[str, object]:
         """Create a new audit log entry."""
         raise NotImplementedError
 
@@ -24,6 +25,6 @@ class AuditService:
         tenant_id: uuid.UUID,
         limit: int = 100,
         offset: int = 0,
-    ) -> list[dict]:
+    ) -> list[dict[str, object]]:
         """List audit logs for a tenant."""
         raise NotImplementedError

@@ -2,7 +2,6 @@
 
 from uuid import UUID
 
-from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from ar_ap_service.modules.ar_ap.domain.entities import Invoice, Payment
@@ -10,7 +9,6 @@ from ar_ap_service.modules.ar_ap.domain.repository import (
     InvoiceRepository,
     PaymentRepository,
 )
-from ar_ap_service.modules.ar_ap.infrastructure.models import InvoiceModel, PaymentModel
 
 
 class SqlAlchemyInvoiceRepository(InvoiceRepository):

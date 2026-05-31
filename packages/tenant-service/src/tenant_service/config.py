@@ -10,7 +10,7 @@ from pydantic_settings import SettingsConfigDict
 _BACKEND_ROOT_ENV = Path(__file__).resolve().parents[4] / ".env"
 
 
-class TenantSettings(SharedSettings):
+class TenantSettings(SharedSettings):  # type: ignore[misc]
     """Tenant-service specific settings."""
 
     model_config = SettingsConfigDict(

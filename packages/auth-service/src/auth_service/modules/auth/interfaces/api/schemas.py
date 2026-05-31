@@ -122,6 +122,10 @@ class RegisterAPIResponseSchema(BaseModel):
         default=None,
         description="Raw code for non-production testing only (omitted in production)",
     )
+    verification_email_sent: bool = Field(
+        default=True,
+        description="Whether initial verification email dispatch succeeded",
+    )
 
 
 class MessageResponseSchema(BaseModel):
@@ -130,6 +134,18 @@ class MessageResponseSchema(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     message: str = Field(..., description="Informational message")
+
+
+class ResendVerificationCodeResponseSchema(BaseModel):
+    """POST /auth/resend-verification-code response."""
+
+    model_config = ConfigDict(from_attributes=True)
+
+    message: str = Field(..., description="Informational message")
+    verification_code: str | None = Field(
+        default=None,
+        description="Raw code for non-production testing only when email was sent",
+    )
 
 
 class CurrentUserResponseSchema(BaseModel):

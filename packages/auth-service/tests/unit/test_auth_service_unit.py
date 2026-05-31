@@ -117,7 +117,7 @@ async def test_register_production_does_not_return_verification_code() -> None:
 
 
 @pytest.mark.asyncio
-async def test_register_email_send_failure_raises() -> None:
+async def test_register_email_send_failure_returns_success_with_flag() -> None:
     repo = AsyncMock()
     repo.get_by_email.return_value = None
 
@@ -128,8 +128,32 @@ async def test_register_email_send_failure_raises() -> None:
     email = _email_mock()
     email.send_verification_code_email.side_effect = OSError("smtp down")
     svc = AuthService(_settings(), repo, email)
+    response = await svc.register(RegisterRequest(email="e@example.com", password="SecurePass1"))
+
+    assert response.verification_email_sent is False
+    assert "could not be sent" in response.message.lower()
+    repo.commit.assert_awaited_once()
+
+
+@pytest.mark.asyncio
+async def test_resend_email_send_failure_raises() -> None:
+    repo = AsyncMock()
+    uid = new_user_id()
+    user = User(
+        id=uid,
+        email="resend@example.com",
+        hashed_password="x",
+        email_verified=False,
+        failed_login_attempts=0,
+        locked_until=None,
+    )
+    repo.get_by_email.return_value = user
+    repo.find_latest_verification_code_row_for_user.return_value = None
+    email = _email_mock()
+    email.send_verification_code_email.side_effect = OSError("smtp down")
+    svc = AuthService(_settings(email_verify_code_resend_cooldown_seconds=0), repo, email)
     with pytest.raises(VerificationEmailFailedError):
-        await svc.register(RegisterRequest(email="e@example.com", password="SecurePass1"))
+        await svc.resend_verification_code("resend@example.com")
     repo.commit.assert_awaited_once()
 
 
