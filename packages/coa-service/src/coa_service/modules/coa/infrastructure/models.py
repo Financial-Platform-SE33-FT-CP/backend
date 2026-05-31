@@ -31,7 +31,7 @@ class AccountModel(Base):
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
-        ForeignKey("tenants.id", ondelete="CASCADE"),
+        #ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
