@@ -30,7 +30,7 @@ class AccountModel(Base):  # type: ignore[misc]
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(
         Uuid(as_uuid=True),
-        #ForeignKey("tenants.id", ondelete="CASCADE"),
+        # Cross-service ORM FK is intentionally omitted; DB FK is kept in Alembic migration.
         nullable=False,
         index=True,
     )
