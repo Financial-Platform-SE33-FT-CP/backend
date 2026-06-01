@@ -1,12 +1,13 @@
 """AR/AP SQLAlchemy models (proposal-aligned domain + existing invoice amount field)."""
 
-from datetime import datetime
+import uuid
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import uuid4
 
 from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
 from sqlalchemy.dialects.postgresql import UUID
-from sqlalchemy.orm import declarative_base, relationship
+from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship
 from sqlalchemy.schema import UniqueConstraint
 
 Base = declarative_base()
@@ -15,16 +16,16 @@ Base = declarative_base()
 class CustomerModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "customers"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    name = Column(String(255), nullable=False)
-    email = Column(String(254), nullable=True)
-    credit_terms_days = Column(Integer, nullable=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
+    credit_terms_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
 class VendorModel(Base):  # type: ignore[misc, valid-type]
@@ -60,56 +61,70 @@ class GstCodeModel(Base):  # type: ignore[misc, valid-type]
 class InvoiceModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "invoices"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    customer_id = Column(
+    customer_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("customers.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    invoice_number = Column(String(100), nullable=False)
-    amount = Column(Numeric(12, 2), nullable=False, default=Decimal("0.00"))
-    issue_date = Column(Date, nullable=True)
-    due_date = Column(Date, nullable=True)
-    subtotal = Column(Numeric(18, 2), nullable=True)
-    gst_amount = Column(Numeric(18, 2), nullable=True)
-    total = Column(Numeric(18, 2), nullable=True)
-    journal_entry_id = Column(
+    invoice_number: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0.00"))
+    issue_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    subtotal: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    gst_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    journal_entry_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("journal_entries.id", ondelete="SET NULL"),
         nullable=True,
     )
-    status = Column(String(50), nullable=False, default="draft")
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="draft")
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
 
-    payments = relationship("PaymentModel", back_populates="invoice")
+    lines: Mapped[list["InvoiceLineModel"]] = relationship(
+        "InvoiceLineModel",
+        back_populates="invoice",
+        cascade="all, delete-orphan",
+    )
+    payments: Mapped[list["PaymentModel"]] = relationship("PaymentModel", back_populates="invoice")
 
 
 class InvoiceLineModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "invoice_lines"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    invoice_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    invoice_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("invoices.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    description = Column(Text, nullable=True)
-    quantity = Column(Numeric(18, 4), nullable=False, default=1)
-    unit_price = Column(Numeric(18, 2), nullable=False)
-    account_id = Column(
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=1)
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    account_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("chart_of_accounts.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    gst_rate = Column(Numeric(8, 4), nullable=True)
-    line_total = Column(Numeric(18, 2), nullable=False)
+    gst_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
+    line_total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    gst_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0.00")
+    )
+
+    invoice: Mapped["InvoiceModel"] = relationship("InvoiceModel", back_populates="lines")
 
 
 class BillModel(Base):  # type: ignore[misc, valid-type]
