@@ -120,9 +120,7 @@ async def client(app: object) -> AsyncGenerator[AsyncClient, None]:
         yield ac
 
 
-async def _fresh_tenant(
-    client: AsyncClient, session_factory: object, owner: uuid.UUID
-) -> uuid.UUID:
+async def _fresh_tenant(client: AsyncClient, session_factory: object, owner: uuid.UUID) -> uuid.UUID:
     async with session_factory() as s:  # type: ignore[misc]
         await _create_user(s, user_id=owner, email=f"{owner.hex[:8]}@x.com")
         await s.commit()
@@ -563,6 +561,7 @@ async def test_internal_authorization_check(
             "tenant_id": str(tid),
             "permission": "coa:read",
         },
+
     )
     assert r_deny.status_code == 200
     assert r_deny.json()["allowed"] is False
@@ -570,9 +569,7 @@ async def test_internal_authorization_check(
 
 
 @pytest.mark.asyncio
-async def test_internal_authorization_wrong_token(
-    client: AsyncClient, session_factory: object
-) -> None:
+async def test_internal_authorization_wrong_token(client: AsyncClient, session_factory: object) -> None:
     owner = uuid.uuid4()
     tid = await _fresh_tenant(client, session_factory, owner)
     r = await client.post(

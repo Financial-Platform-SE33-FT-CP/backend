@@ -9,7 +9,7 @@ from sqlalchemy.orm import Mapped, mapped_column
 from sqlalchemy.schema import UniqueConstraint
 
 
-class TenantModel(Base):  # type: ignore[misc]
+class TenantModel(Base):
     __tablename__ = "tenants"
 
     id: Mapped[uuid.UUID] = mapped_column(Uuid(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -25,7 +25,7 @@ class TenantModel(Base):  # type: ignore[misc]
     updated_at: Mapped[datetime] = mapped_column(DateTime(timezone=True), nullable=False)
 
 
-class TenantUserModel(Base):  # type: ignore[misc]
+class TenantUserModel(Base):
     __tablename__ = "tenant_users"
     __table_args__ = (UniqueConstraint("tenant_id", "user_id", name="uq_tenant_users_tenant_user"),)
 

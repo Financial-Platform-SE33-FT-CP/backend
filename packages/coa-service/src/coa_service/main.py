@@ -3,13 +3,13 @@ from __future__ import annotations
 from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
+from fastapi import FastAPI
+from fastapi.middleware.cors import CORSMiddleware
+
 from accounting_shared.exceptions import register_exception_handlers
 from accounting_shared.logging import setup_logging
 from accounting_shared.middleware.request_id import RequestIDMiddleware
 from accounting_shared.middleware.tenant_context import TenantContextMiddleware
-from fastapi import FastAPI
-from fastapi.middleware.cors import CORSMiddleware
-
 from coa_service.config import COASettings
 from coa_service.modules.coa.interfaces.api.router import router as coa_router
 

@@ -1,7 +1,7 @@
-from accounting_shared.types import AccountId, TenantId
 from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from accounting_shared.types import AccountId, TenantId
 from coa_service.modules.coa.domain.entities import Account
 from coa_service.modules.coa.domain.repository import AccountRepository
 from coa_service.modules.coa.infrastructure.models import AccountModel, AccountType

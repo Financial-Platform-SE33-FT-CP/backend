@@ -70,7 +70,9 @@ def test_port_587_with_tls_disabled_is_plain() -> None:
 def test_verification_code_email_body_has_no_url_scheme() -> None:
     code = "123456"
     expiry = 10
-    plain = f"Your verification code is: {code}\n\nThis code will expire in {expiry} minutes."
+    plain = (
+        f"Your verification code is: {code}\n\nThis code will expire in {expiry} minutes."
+    )
     html = f"<p>Your verification code is: <strong>{code}</strong></p>"
     assert "http://" not in plain and "https://" not in plain
     assert "http://" not in html and "https://" not in html

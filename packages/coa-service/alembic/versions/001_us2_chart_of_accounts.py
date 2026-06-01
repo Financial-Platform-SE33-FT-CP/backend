@@ -35,7 +35,9 @@ def upgrade() -> None:
         sa.Column("is_system_default", sa.Boolean(), nullable=False),
         sa.Column("created_at", sa.DateTime(timezone=True), nullable=False),
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=False),
-        sa.UniqueConstraint("tenant_id", "code", name="uq_chart_of_accounts_tenant_code"),
+        sa.UniqueConstraint(
+            "tenant_id", "code", name="uq_chart_of_accounts_tenant_code"
+        ),
     )
     op.create_index(
         op.f("ix_chart_of_accounts_tenant_id"),

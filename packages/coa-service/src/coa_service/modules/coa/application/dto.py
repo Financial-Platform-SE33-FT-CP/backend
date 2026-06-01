@@ -1,4 +1,5 @@
 from datetime import datetime
+from typing import Optional
 from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field, field_validator
@@ -8,14 +9,14 @@ class CreateAccountRequest(BaseModel):
     code: str
     name: str
     account_type: str
-    parent_code: str | None = None
-    description: str | None = None
+    parent_code: Optional[str] = None
+    description: Optional[str] = None
 
 
 class UpdateAccountRequest(BaseModel):
-    name: str | None = None
-    description: str | None = None
-    is_active: bool | None = None
+    name: Optional[str] = None
+    description: Optional[str] = None
+    is_active: Optional[bool] = None
 
 
 class AccountResponse(BaseModel):
@@ -26,10 +27,10 @@ class AccountResponse(BaseModel):
     code: str
     name: str
     account_type: str
-    parent_id: str | None = None
+    parent_id: Optional[str] = None
     is_active: bool
     is_system: bool
-    description: str | None = None
+    description: Optional[str] = None
     created_at: datetime
     updated_at: datetime
 

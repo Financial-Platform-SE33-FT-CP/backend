@@ -201,7 +201,7 @@ async def get_me(
 async def verify_token(
     access_token: str = Depends(get_access_token_value),
     auth_service: AuthService = Depends(get_auth_service),
-) -> dict[str, object]:
+) -> dict:
     """Validate a JWT token for other services (inter-service auth)."""
     user = await auth_service.verify_access_token_for_gateway(access_token)
     return {
