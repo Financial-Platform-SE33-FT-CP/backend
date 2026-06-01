@@ -1,6 +1,7 @@
 import uuid
 from datetime import UTC, date, datetime
 
+import pytest
 from fastapi.testclient import TestClient
 
 HEADERS_TEMPLATE = {"X-Tenant-ID": "00000000-0000-0000-0000-000000000001"}
@@ -11,10 +12,6 @@ ACCOUNT_2_ID = "20000000-0000-0000-0000-000000000001"
 
 
 async def _seed_tenant(session_factory) -> None:
-    import uuid
-    from datetime import datetime
-
-    from coa_service.modules.coa.infrastructure.models import AccountModel, AccountType
     from sqlalchemy import text
 
     async with session_factory() as session:
@@ -22,44 +19,26 @@ async def _seed_tenant(session_factory) -> None:
             text("INSERT INTO tenants (id, name) VALUES (:id, :name)"),
             {"id": TENANT_ID_STR, "name": "Test Tenant"},
         )
-        now = datetime.now()
-        session.add(AccountModel(
-            id=uuid.UUID(ACCOUNT_1_ID),
-            tenant_id=uuid.UUID(TENANT_ID_STR),
-            code="1000",
-            name="Cash",
-            account_type=AccountType.ASSET,
-            is_active=True,
-            is_system_default=False,
-            created_at=now,
-            updated_at=now,
-        ))
-        session.add(AccountModel(
-            id=uuid.UUID(ACCOUNT_2_ID),
-            tenant_id=uuid.UUID(TENANT_ID_STR),
-            code="5000",
-            name="Revenue",
-            account_type=AccountType.REVENUE,
-            is_active=True,
-            is_system_default=False,
-            created_at=now,
-            updated_at=now,
-        ))
+        await session.execute(
+            text("INSERT INTO chart_of_accounts (id, code, name) VALUES (:id, :code, :name)"),
+            {"id": ACCOUNT_1_ID, "code": "1000", "name": "Cash"},
+        )
+        await session.execute(
+            text("INSERT INTO chart_of_accounts (id, code, name) VALUES (:id, :code, :name)"),
+            {"id": ACCOUNT_2_ID, "code": "5000", "name": "Revenue"},
+        )
         await session.commit()
 
 
 async def _seed_open_period(session_factory) -> None:
-    from calendar import monthrange
-
     from ledger_service.modules.ledger.infrastructure.models import AccountingPeriodModel
 
     today = date.today()
-    _, last_day = monthrange(today.year, today.month)
     async with session_factory() as session:
         period = AccountingPeriodModel(
             tenant_id=uuid.UUID(TENANT_ID_STR),
             start_date=today.replace(day=1),
-            end_date=today.replace(day=last_day),
+            end_date=today.replace(day=28),
             is_closed=False,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
@@ -85,17 +64,14 @@ async def _seed_closed_period(session_factory) -> None:
 
 
 async def _seed_closed_period_today(session_factory) -> None:
-    from calendar import monthrange
-
     from ledger_service.modules.ledger.infrastructure.models import AccountingPeriodModel
 
     today = date.today()
-    _, last_day = monthrange(today.year, today.month)
     async with session_factory() as session:
         period = AccountingPeriodModel(
             tenant_id=uuid.UUID(TENANT_ID_STR),
             start_date=today.replace(day=1),
-            end_date=today.replace(day=last_day),
+            end_date=today.replace(day=28),
             is_closed=True,
             created_at=datetime.now(UTC),
             updated_at=datetime.now(UTC),
@@ -128,7 +104,9 @@ class TestCreateJournalEntry:
         assert data["lines"][0]["debit_amount"] == "100.00"
         assert data["lines"][1]["credit_amount"] == "100.00"
 
-    def test_create_returns_immutable_entry(self, client: TestClient, valid_payload: dict):
+    def test_create_returns_immutable_entry(
+        self, client: TestClient, valid_payload: dict
+    ):
         import asyncio
 
         asyncio.run(_seed_tenant(client.app.state.session_factory))
@@ -285,7 +263,9 @@ class TestCreateJournalEntry:
         assert response.status_code == 409
         assert "closed" in response.json()["detail"].lower()
 
-    def test_missing_tenant_id_rejected(self, client: TestClient, valid_payload: dict):
+    def test_missing_tenant_id_rejected(
+        self, client: TestClient, valid_payload: dict
+    ):
         response = client.post("/ledger/journal-entries", json=valid_payload)
         assert response.status_code == 422
 
@@ -293,7 +273,9 @@ class TestCreateJournalEntry:
 class TestGetJournalEntry:
     """GET /ledger/journal-entries/{entry_id}"""
 
-    def test_get_by_id_returns_entry_with_lines(self, client: TestClient, valid_payload: dict):
+    def test_get_by_id_returns_entry_with_lines(
+        self, client: TestClient, valid_payload: dict
+    ):
         import asyncio
 
         asyncio.run(_seed_tenant(client.app.state.session_factory))

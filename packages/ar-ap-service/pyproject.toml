@@ -11,12 +11,8 @@ dependencies = [
     "asyncpg",
     "structlog",
     "httpx",
-    "python-jose[cryptography]",
     "alembic",
-    "reportlab",
     "shared-lib",
-    "tenant-service",
-    "coa-service",
 ]
 
 [build-system]
@@ -28,7 +24,6 @@ dev = [
     "pytest>=8.3.0",
     "pytest-asyncio>=0.24.0",
     "pytest-cov>=6.0.0",
-    "aiosqlite>=0.20.0",
     "ruff>=0.8.0",
     "mypy>=1.13.0",
     "testcontainers[postgres]>=4.9.0",
@@ -37,8 +32,3 @@ dev = [
 [tool.pytest.ini_options]
 asyncio_mode = "auto"
 testpaths = ["tests"]
-
-[tool.uv.sources]
-shared-lib = { workspace = true }
-tenant-service = { workspace = true }
-coa-service = { workspace = true }

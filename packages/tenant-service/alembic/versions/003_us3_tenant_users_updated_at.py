@@ -18,9 +18,7 @@ def upgrade() -> None:
         sa.Column("updated_at", sa.DateTime(timezone=True), nullable=True),
     )
     conn = op.get_bind()
-    conn.execute(
-        sa.text("UPDATE tenant_users SET updated_at = created_at WHERE updated_at IS NULL")
-    )
+    conn.execute(sa.text("UPDATE tenant_users SET updated_at = created_at WHERE updated_at IS NULL"))
     op.alter_column(
         "tenant_users",
         "updated_at",

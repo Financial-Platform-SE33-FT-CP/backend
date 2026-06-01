@@ -23,8 +23,8 @@ async def tables(engine):
 
 @pytest_asyncio.fixture
 async def session(engine, tables) -> AsyncSession:
-    session_factory = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
-    async with session_factory() as s:
+    Session = async_sessionmaker(engine, class_=AsyncSession, expire_on_commit=False)
+    async with Session() as s:
         yield s
         await s.rollback()
 

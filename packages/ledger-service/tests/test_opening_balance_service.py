@@ -5,8 +5,8 @@ from decimal import Decimal
 from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
-
 from accounting_shared.exceptions import ValidationError
+
 from ledger_service.modules.opening_balance.application.csv_parser import (
     parse_opening_balance_csv,
 )
@@ -117,21 +117,23 @@ async def test_import_opening_balance_success(session) -> None:
     create_je.assert_awaited_once()
 
     with (
-        patch.object(service, "has_opening_balance", new_callable=AsyncMock, return_value=True),
+        patch.object(
+            service, "has_opening_balance", new_callable=AsyncMock, return_value=True
+        ),
         patch.object(
             service._coa,
             "resolve_codes",
             new_callable=AsyncMock,
             return_value={"1000": "a1", "3200": "a2"},
         ),
-        pytest.raises(ValidationError, match="already been imported"),
     ):
-        await service.import_opening_balance(
-            tenant_id=tenant,
-            parsed=parsed,
-            entry_date=date(2026, 1, 1),
-            created_by=None,
-        )
+        with pytest.raises(ValidationError, match="already been imported"):
+            await service.import_opening_balance(
+                tenant_id=tenant,
+                parsed=parsed,
+                entry_date=date(2026, 1, 1),
+                created_by=None,
+            )
 
 
 @pytest.mark.asyncio
@@ -148,7 +150,9 @@ async def test_import_with_ar_ap_aging(session) -> None:
     parsed = service.parse_csv(csv_text)
 
     with (
-        patch.object(service, "has_opening_balance", new_callable=AsyncMock, return_value=False),
+        patch.object(
+            service, "has_opening_balance", new_callable=AsyncMock, return_value=False
+        ),
         patch.object(
             service._coa,
             "resolve_codes",
@@ -207,7 +211,9 @@ async def test_import_requires_revenue_account_for_ar(session) -> None:
     )
 
     with (
-        patch.object(service, "has_opening_balance", new_callable=AsyncMock, return_value=False),
+        patch.object(
+            service, "has_opening_balance", new_callable=AsyncMock, return_value=False
+        ),
         patch.object(
             service._coa,
             "resolve_codes",
@@ -220,14 +226,14 @@ async def test_import_requires_revenue_account_for_ar(session) -> None:
             new_callable=AsyncMock,
             return_value="je-3",
         ),
-        pytest.raises(ValidationError, match="4000"),
     ):
-        await service.import_opening_balance(
-            tenant_id="t",
-            parsed=parsed,
-            entry_date=date(2026, 1, 1),
-            created_by=None,
-        )
+        with pytest.raises(ValidationError, match="4000"):
+            await service.import_opening_balance(
+                tenant_id="t",
+                parsed=parsed,
+                entry_date=date(2026, 1, 1),
+                created_by=None,
+            )
 
 
 def test_parse_csv_delegates() -> None:

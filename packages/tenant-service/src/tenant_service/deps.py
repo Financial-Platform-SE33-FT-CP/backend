@@ -60,12 +60,11 @@ def _jwt_payload_from_bearer(
     if credentials is None or credentials.scheme.lower() != "bearer":
         return None
     try:
-        payload: dict[str, object] = jwt.decode(
+        return jwt.decode(
             credentials.credentials,
             settings.jwt_secret,
             algorithms=[settings.jwt_algorithm],
         )
-        return payload
     except JWTError:
         raise HTTPException(status_code=401, detail="Not authenticated.") from None
 

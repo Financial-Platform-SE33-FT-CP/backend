@@ -10,7 +10,7 @@ from pydantic_settings import SettingsConfigDict
 _BACKEND_ROOT_ENV = Path(__file__).resolve().parents[4] / ".env"
 
 
-class COASettings(SharedSettings):  # type: ignore[misc]
+class COASettings(SharedSettings):
     """Chart-of-accounts service settings."""
 
     model_config = SettingsConfigDict(
@@ -26,7 +26,7 @@ class COASettings(SharedSettings):  # type: ignore[misc]
         description="Must match TenantSettings.internal_api_token for RBAC delegation (US-3).",
     )
 
-    default_coa_accounts: list[dict[str, object]] = [
+    default_coa_accounts: list[dict] = [
         {
             "code": "1000",
             "name": "Cash",

@@ -1,5 +1,4 @@
 """Audit repository implementation."""
-
 from __future__ import annotations
 
 import uuid
@@ -8,6 +7,7 @@ from sqlalchemy.ext.asyncio import AsyncSession
 
 from audit_service.modules.audit.domain.entities import AuditLog
 from audit_service.modules.audit.domain.repository import AuditLogRepository
+from audit_service.modules.audit.infrastructure.models import AuditLogModel
 
 
 class SqlAlchemyAuditLogRepository(AuditLogRepository):

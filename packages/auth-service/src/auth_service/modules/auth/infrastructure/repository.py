@@ -96,7 +96,7 @@ class SqlAlchemyUserRepository(UserRepository):
         model = result.scalars().first()
         if model is None:
             return
-        await self._session.delete(model)
+        self._session.delete(model)
         await self._session.flush()
 
     async def save_email_verification_code(

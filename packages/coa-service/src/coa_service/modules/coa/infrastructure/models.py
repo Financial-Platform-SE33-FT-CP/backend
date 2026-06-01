@@ -4,11 +4,12 @@ import uuid
 from datetime import datetime
 from enum import StrEnum
 
-from accounting_shared.database import Base
 from sqlalchemy import Boolean, DateTime, ForeignKey, String, Uuid
 from sqlalchemy import Enum as SQLEnum
 from sqlalchemy.orm import Mapped, mapped_column, relationship
 from sqlalchemy.schema import UniqueConstraint
+
+from accounting_shared.database import Base
 
 
 class AccountType(StrEnum):
@@ -19,7 +20,7 @@ class AccountType(StrEnum):
     EXPENSE = "expense"
 
 
-class AccountModel(Base):  # type: ignore[misc]
+class AccountModel(Base):
     """Chart of accounts row; owned by a tenant."""
 
     __tablename__ = "chart_of_accounts"

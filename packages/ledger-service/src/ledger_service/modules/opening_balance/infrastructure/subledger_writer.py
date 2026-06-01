@@ -17,6 +17,7 @@ from ar_ap_service.modules.ar_ap.infrastructure.models import (
     InvoiceModel,
     VendorModel,
 )
+
 from ledger_service.modules.opening_balance.domain.entities import (
     ApAgingLine,
     ArAgingLine,
@@ -34,7 +35,9 @@ class OpeningSubledgerWriter:
     def __init__(self, session: AsyncSession) -> None:
         self._session = session
 
-    async def _get_or_create_customer(self, tenant_id: uuid.UUID, name: str) -> uuid.UUID:
+    async def _get_or_create_customer(
+        self, tenant_id: uuid.UUID, name: str
+    ) -> uuid.UUID:
         stmt = select(CustomerModel).where(
             CustomerModel.tenant_id == tenant_id,
             CustomerModel.name == name,
@@ -42,13 +45,15 @@ class OpeningSubledgerWriter:
         result = await self._session.execute(stmt)
         existing = result.scalars().first()
         if existing:
-            return existing.id  # type: ignore[no-any-return]
+            return existing.id
         customer = CustomerModel(tenant_id=tenant_id, name=name)
         self._session.add(customer)
         await self._session.flush()
-        return customer.id  # type: ignore[no-any-return]
+        return customer.id
 
-    async def _get_or_create_vendor(self, tenant_id: uuid.UUID, name: str) -> uuid.UUID:
+    async def _get_or_create_vendor(
+        self, tenant_id: uuid.UUID, name: str
+    ) -> uuid.UUID:
         stmt = select(VendorModel).where(
             VendorModel.tenant_id == tenant_id,
             VendorModel.name == name,
@@ -56,11 +61,11 @@ class OpeningSubledgerWriter:
         result = await self._session.execute(stmt)
         existing = result.scalars().first()
         if existing:
-            return existing.id  # type: ignore[no-any-return]
+            return existing.id
         vendor = VendorModel(tenant_id=tenant_id, name=name)
         self._session.add(vendor)
         await self._session.flush()
-        return vendor.id  # type: ignore[no-any-return]
+        return vendor.id
 
     async def create_ar_aging(
         self,

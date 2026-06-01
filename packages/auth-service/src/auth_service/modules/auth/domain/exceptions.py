@@ -7,14 +7,14 @@ from accounting_shared.exceptions import (
 )
 
 
-class InvalidCredentialsError(UnauthorizedError):  # type: ignore[misc]
+class InvalidCredentialsError(UnauthorizedError):
     """Login credentials do not match any known account."""
 
     def __init__(self, message: str = "Invalid email or password.") -> None:
         super().__init__(detail=message)
 
 
-class EmailAlreadyExistsError(ConflictError):  # type: ignore[misc]
+class EmailAlreadyExistsError(ConflictError):
     """An account with this email already exists."""
 
     def __init__(
@@ -24,7 +24,7 @@ class EmailAlreadyExistsError(ConflictError):  # type: ignore[misc]
         super().__init__(detail=message)
 
 
-class EmailNotVerifiedError(UnauthorizedError):  # type: ignore[misc]
+class EmailNotVerifiedError(UnauthorizedError):
     """The email address has not been verified."""
 
     def __init__(
@@ -34,7 +34,7 @@ class EmailNotVerifiedError(UnauthorizedError):  # type: ignore[misc]
         super().__init__(detail=message)
 
 
-class AccountLockedError(UnauthorizedError):  # type: ignore[misc]
+class AccountLockedError(UnauthorizedError):
     """The account is temporarily locked due to too many failed attempts."""
 
     def __init__(
@@ -44,14 +44,14 @@ class AccountLockedError(UnauthorizedError):  # type: ignore[misc]
         super().__init__(detail=message)
 
 
-class InvalidTokenError(UnauthorizedError):  # type: ignore[misc]
+class InvalidTokenError(UnauthorizedError):
     """The provided token is invalid or expired."""
 
     def __init__(self, message: str = "Invalid or expired token.") -> None:
         super().__init__(detail=message)
 
 
-class VerificationCodeError(UnauthorizedError):  # type: ignore[misc]
+class VerificationCodeError(UnauthorizedError):
     """Invalid, expired, exhausted, or unknown verification code (generic detail)."""
 
     def __init__(
@@ -61,7 +61,7 @@ class VerificationCodeError(UnauthorizedError):  # type: ignore[misc]
         super().__init__(detail=message)
 
 
-class VerificationEmailFailedError(ServiceUnavailableError):  # type: ignore[misc]
+class VerificationEmailFailedError(ServiceUnavailableError):
     """The account was created but SMTP verification mail could not be sent."""
 
     def __init__(self) -> None:

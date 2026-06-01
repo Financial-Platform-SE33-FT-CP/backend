@@ -1,6 +1,5 @@
 from __future__ import annotations
 
-import uuid
 from collections.abc import AsyncGenerator
 from unittest.mock import MagicMock
 
@@ -9,7 +8,7 @@ import pytest_asyncio
 from fastapi import FastAPI
 from httpx import ASGITransport, AsyncClient
 
-from accounting_shared.types import TenantId, UserId
+from accounting_shared.types import TenantId
 
 from tenant_service.deps import get_tenant_service
 from tenant_service.main import create_app
@@ -39,15 +38,17 @@ def tenant_service(mock_repository: MagicMock) -> TenantService:
 @pytest_asyncio.fixture
 async def client(app: FastAPI, tenant_service: TenantService) -> AsyncGenerator[AsyncClient, None]:
     app.dependency_overrides[get_tenant_service] = lambda: tenant_service
-    async with AsyncClient(transport=ASGITransport(app=app), base_url="http://test") as ac:
+    async with AsyncClient(
+        transport=ASGITransport(app=app), base_url="http://test"
+    ) as ac:
         yield ac
 
 
 @pytest.fixture
 def sample_tenant_id() -> TenantId:
-    return TenantId(uuid.UUID("11111111-1111-1111-1111-111111111111"))
+    return TenantId("11111111-1111-1111-1111-111111111111")
 
 
 @pytest.fixture
-def sample_user_id() -> UserId:
-    return UserId(uuid.UUID("22222222-2222-2222-2222-222222222222"))
+def sample_user_id() -> TenantId:
+    return TenantId("22222222-2222-2222-2222-222222222222")
