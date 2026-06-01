@@ -453,9 +453,7 @@ class PaymentService:
             date_to=date_to,
         )
 
-    async def get_invoice_settlement(
-        self, tenant_id: UUID, invoice_id: UUID
-    ) -> InvoiceSettlement:
+    async def get_invoice_settlement(self, tenant_id: UUID, invoice_id: UUID) -> InvoiceSettlement:
         """Return invoice total and amount already paid (for outstanding balance)."""
         invoice = await self._require_invoice(tenant_id, invoice_id)
         paid = await self._payments.sum_paid_for_invoice(tenant_id, invoice_id)
@@ -504,9 +502,7 @@ class PaymentService:
                 f"Payment amount {amount} exceeds the outstanding balance {outstanding}."
             )
 
-        deposit_account = await self._resolve_deposit_account(
-            tenant_id, command.deposit_account_id
-        )
+        deposit_account = await self._resolve_deposit_account(tenant_id, command.deposit_account_id)
         ar_account = await self._require_account_by_code(tenant_id)
 
         if await self._ledger.is_period_closed(tenant_id, command.payment_date):
@@ -577,9 +573,7 @@ class PaymentService:
             raise NotFoundError("Invoice not found.")
         return invoice
 
-    async def _resolve_deposit_account(
-        self, tenant_id: UUID, account_id: UUID
-    ) -> AccountInfo:
+    async def _resolve_deposit_account(self, tenant_id: UUID, account_id: UUID) -> AccountInfo:
         account = await self._accounts.get_by_id(tenant_id, account_id)
         if account is None:
             raise ValidationError("Deposit account not found for this tenant.")

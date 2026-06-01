@@ -384,9 +384,7 @@ class SqlAlchemyPaymentRepository(PaymentRepository):
         model = result.scalar_one_or_none()
         return _payment_to_entity(model) if model is not None else None
 
-    async def list_by_invoice(
-        self, tenant_id: uuid.UUID, invoice_id: uuid.UUID
-    ) -> list[Payment]:
+    async def list_by_invoice(self, tenant_id: uuid.UUID, invoice_id: uuid.UUID) -> list[Payment]:
         stmt = (
             select(PaymentModel)
             .where(
@@ -426,9 +424,7 @@ class SqlAlchemyPaymentRepository(PaymentRepository):
         result = await self._session.execute(stmt)
         return [_payment_to_entity(m) for m in result.scalars().all()]
 
-    async def sum_paid_for_invoice(
-        self, tenant_id: uuid.UUID, invoice_id: uuid.UUID
-    ) -> Decimal:
+    async def sum_paid_for_invoice(self, tenant_id: uuid.UUID, invoice_id: uuid.UUID) -> Decimal:
         stmt = select(func.coalesce(func.sum(PaymentModel.amount), 0)).where(
             PaymentModel.tenant_id == tenant_id,
             PaymentModel.invoice_id == invoice_id,
@@ -436,9 +432,7 @@ class SqlAlchemyPaymentRepository(PaymentRepository):
         result = await self._session.execute(stmt)
         return Decimal(str(result.scalar_one()))
 
-    async def get_by_idempotency_key(
-        self, tenant_id: uuid.UUID, key: str
-    ) -> Payment | None:
+    async def get_by_idempotency_key(self, tenant_id: uuid.UUID, key: str) -> Payment | None:
         stmt = select(PaymentModel).where(
             PaymentModel.tenant_id == tenant_id,
             PaymentModel.idempotency_key == key,

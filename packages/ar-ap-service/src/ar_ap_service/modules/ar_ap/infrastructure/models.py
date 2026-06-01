@@ -247,9 +247,7 @@ class PaymentModel(Base):  # type: ignore[misc, valid-type]
 
     __tablename__ = "payments"
     __table_args__ = (
-        UniqueConstraint(
-            "tenant_id", "idempotency_key", name="uq_payments_tenant_idempotency_key"
-        ),
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_payments_tenant_idempotency_key"),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
@@ -265,13 +263,9 @@ class PaymentModel(Base):  # type: ignore[misc, valid-type]
         ForeignKey("customers.id", ondelete="RESTRICT"),
         nullable=True,
     )
-    amount: Mapped[Decimal] = mapped_column(
-        Numeric(12, 2), nullable=False, default=Decimal("0.00")
-    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0.00"))
     payment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
-    payment_method: Mapped[str] = mapped_column(
-        String(32), nullable=False, default="bank_transfer"
-    )
+    payment_method: Mapped[str] = mapped_column(String(32), nullable=False, default="bank_transfer")
     reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
     deposit_account_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True),
@@ -285,8 +279,6 @@ class PaymentModel(Base):  # type: ignore[misc, valid-type]
     )
     idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
-    created_at: Mapped[datetime] = mapped_column(
-        DateTime, nullable=False, default=datetime.utcnow
-    )
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
     invoice: Mapped["InvoiceModel"] = relationship("InvoiceModel", back_populates="payments")
