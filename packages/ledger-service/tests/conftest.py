@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
-from sqlalchemy import String, Table, Uuid, text
+from sqlalchemy import Column, String, Table, Uuid, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from coa_service.modules.coa.infrastructure.models import AccountModel
@@ -54,6 +54,15 @@ async def tables(engine):
         await conn.execute(text("PRAGMA foreign_keys=OFF"))
 
         def create_journal_tables(sync_conn) -> None:
+            # Stub tenants table in AccountModel's metadata to satisfy the FK
+            # on chart_of_accounts.tenant_id when SQLite resolves the constraint.
+            _ = Table(
+                "tenants",
+                AccountModel.metadata,
+                Column("id", Uuid(as_uuid=True), primary_key=True),
+                Column("name", String(255)),
+                extend_existing=True,
+            )
             AccountModel.__table__.create(sync_conn, checkfirst=True)
             JournalEntryModel.__table__.create(sync_conn, checkfirst=True)
             JournalEntryLineModel.__table__.create(sync_conn, checkfirst=True)
