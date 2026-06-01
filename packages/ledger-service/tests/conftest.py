@@ -90,11 +90,10 @@ def _configure_env(monkeypatch: pytest.MonkeyPatch, sqlite_url: str) -> None:
 
 
 async def _create_all(engine: object) -> None:
-    from sqlalchemy import Column
+    from sqlalchemy import Column, DateTime, Boolean
 
     from ledger_service.modules.ledger.infrastructure.models import Base
 
-    # Create stub tables for cross-service FK references
     metadata = Base.metadata
     _ = Table(
         "tenants",
@@ -103,12 +102,23 @@ async def _create_all(engine: object) -> None:
         Column("name", String(255)),
         extend_existing=True,
     )
+    # Stub chart_of_accounts table matching AccountModel columns needed by
+    # ledger-side FK references and AccountModel ORM queries.
+    # Columns not provided by raw-SQL _seed_ helpers use server_default / nullable
+    # so inserts succeed without specifying every column.
     _ = Table(
         "chart_of_accounts",
         metadata,
         Column("id", Uuid(as_uuid=True), primary_key=True),
-        Column("code", String(20)),
-        Column("name", String(255)),
+        Column("tenant_id", Uuid(as_uuid=True), nullable=False),
+        Column("code", String(20), nullable=False),
+        Column("name", String(255), nullable=False),
+        Column("type", String(50), nullable=False),
+        Column("parent_id", Uuid(as_uuid=True), nullable=True),
+        Column("is_active", Boolean, nullable=False, server_default="1"),
+        Column("is_system_default", Boolean, nullable=False, server_default="0"),
+        Column("created_at", DateTime, nullable=False, server_default=text("(datetime('now'))")),
+        Column("updated_at", DateTime, nullable=False, server_default=text("(datetime('now'))")),
         extend_existing=True,
     )
 
