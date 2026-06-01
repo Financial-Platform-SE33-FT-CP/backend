@@ -25,6 +25,6 @@ def register_ar_ap_orm_metadata() -> None:
     if "tenants" in ArApBase.metadata.tables:
         return
     for table in (TenantModel.__table__, AccountModel.__table__):
-        if table.name not in ArApBase.metadata.tables:  # type: ignore[union-attr]
-            table.to_metadata(ArApBase.metadata)  # type: ignore[union-attr]
+        if table.name not in ArApBase.metadata.tables:
+            table.to_metadata(ArApBase.metadata)
     _register_journal_entries_stub()

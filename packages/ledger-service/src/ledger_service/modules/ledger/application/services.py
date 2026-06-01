@@ -206,9 +206,7 @@ class LedgerService:
                 account_id=account_id,
             )
             if snapshot is None:
-                raise ValidationError(
-                    f"Account '{account_id}' not found in Chart of Accounts."
-                )
+                raise ValidationError(f"Account '{account_id}' not found in Chart of Accounts.")
 
         entry = JournalEntry(
             tenant_id=tenant_id,

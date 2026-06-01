@@ -58,9 +58,7 @@ def create_app() -> FastAPI:
     register_exception_handlers(app)
 
     @app.exception_handler(Exception)
-    async def unhandled_exception_handler(
-        request: Request, exc: Exception
-    ) -> JSONResponse:
+    async def unhandled_exception_handler(request: Request, exc: Exception) -> JSONResponse:
         logger.exception(
             "unhandled_exception",
             path=str(request.url.path),
@@ -68,9 +66,7 @@ def create_app() -> FastAPI:
         )
         headers: dict[str, str] = {}
         origin = request.headers.get("origin")
-        if origin and (
-            "*" in settings.cors_origins or origin in settings.cors_origins
-        ):
+        if origin and ("*" in settings.cors_origins or origin in settings.cors_origins):
             headers["Access-Control-Allow-Origin"] = origin
             headers["Access-Control-Allow-Credentials"] = "true"
             headers["Vary"] = "Origin"
