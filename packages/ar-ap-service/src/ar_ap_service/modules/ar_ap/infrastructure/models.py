@@ -372,6 +372,4 @@ class CreditNoteLineModel(Base):  # type: ignore[misc, valid-type]
         Numeric(18, 2), nullable=False, default=Decimal("0.00")
     )
 
-    credit_note: Mapped["CreditNoteModel"] = relationship(
-        "CreditNoteModel", back_populates="lines"
-    )
+    credit_note: Mapped["CreditNoteModel"] = relationship("CreditNoteModel", back_populates="lines")

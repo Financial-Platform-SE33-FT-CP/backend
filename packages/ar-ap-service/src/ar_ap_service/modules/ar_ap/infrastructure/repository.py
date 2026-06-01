@@ -543,9 +543,7 @@ class SqlAlchemyCreditNoteRepository(CreditNoteRepository):
             raise RuntimeError(msg)
         return reloaded
 
-    async def get_by_id(
-        self, tenant_id: uuid.UUID, credit_note_id: uuid.UUID
-    ) -> CreditNote | None:
+    async def get_by_id(self, tenant_id: uuid.UUID, credit_note_id: uuid.UUID) -> CreditNote | None:
         stmt = (
             select(CreditNoteModel)
             .where(

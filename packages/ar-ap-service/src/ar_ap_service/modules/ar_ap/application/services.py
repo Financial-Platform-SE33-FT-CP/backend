@@ -736,9 +736,7 @@ class CreditNoteService:
 
         # Requirement 5/9: a credit note may not exceed the invoice value minus
         # what has already been credited against it.
-        already_credited = await self._credit_notes.sum_credited_for_invoice(
-            tenant_id, invoice.id
-        )
+        already_credited = await self._credit_notes.sum_credited_for_invoice(tenant_id, invoice.id)
         creditable = invoice.total - already_credited
         if credit_note.total > creditable:
             raise ValidationError(
@@ -757,8 +755,7 @@ class CreditNoteService:
 
         if await self._ledger.is_period_closed(tenant_id, command.issue_date):
             raise ConflictError(
-                f"Cannot issue credit note: {command.issue_date} is in a closed "
-                "accounting period."
+                f"Cannot issue credit note: {command.issue_date} is in a closed accounting period."
             )
 
         credit_note.credit_note_number = await self._generate_credit_note_number(
@@ -817,9 +814,7 @@ class CreditNoteService:
             if account is None:
                 account = await self._accounts.get_by_id(tenant_id, raw.account_id)
                 if account is None:
-                    raise ValidationError(
-                        f"Account {raw.account_id} not found for this tenant."
-                    )
+                    raise ValidationError(f"Account {raw.account_id} not found for this tenant.")
                 if not account.is_active:
                     raise ValidationError(f"Account {account.code} is not active.")
                 if account.account_type != _REVENUE_TYPE:
@@ -903,9 +898,7 @@ class CreditNoteService:
                 account_id=str(ar_account.id),
                 debit_amount=_ZERO,
                 credit_amount=credit_note.total,
-                description=(
-                    f"Accounts receivable — credit note {credit_note.credit_note_number}"
-                ),
+                description=(f"Accounts receivable — credit note {credit_note.credit_note_number}"),
             )
         )
 
