@@ -2,12 +2,12 @@ import asyncio
 import os
 from logging.config import fileConfig
 
-from alembic import context
+from accounting_shared.database import Base
 from sqlalchemy import pool
 from sqlalchemy.engine import Connection
 from sqlalchemy.ext.asyncio import async_engine_from_config
 
-from accounting_shared.database import Base
+from alembic import context
 
 # Import models so they register on Base.metadata
 from coa_service.modules.coa.infrastructure.models import AccountModel  # noqa: F401

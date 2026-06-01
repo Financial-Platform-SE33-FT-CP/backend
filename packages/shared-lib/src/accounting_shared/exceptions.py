@@ -7,7 +7,7 @@ from fastapi.responses import JSONResponse
 from starlette import status
 
 
-class DomainException(Exception):
+class DomainException(Exception):  # noqa: N818
     """Base exception for all domain-level errors."""
 
     status_code: int = status.HTTP_500_INTERNAL_SERVER_ERROR
@@ -54,7 +54,7 @@ class ServiceUnavailableError(DomainException):
     detail = "Service temporarily unavailable."
 
 
-def _handler(request: Exception, exc: DomainException) -> JSONResponse:  # type: ignore[override]
+def _handler(request: Exception, exc: DomainException) -> JSONResponse:
     return JSONResponse(
         status_code=exc.status_code,
         content={"detail": exc.detail},

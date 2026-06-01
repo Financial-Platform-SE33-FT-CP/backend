@@ -113,7 +113,7 @@ class AuthService:
 
     def _decode_access_token(self, token: str) -> dict[str, object]:
         try:
-            payload = jwt.decode(
+            payload: dict[str, object] = jwt.decode(
                 token,
                 self._settings.jwt_secret,
                 algorithms=[self._settings.jwt_algorithm],

@@ -1,4 +1,5 @@
 """Dependency injection helpers."""
+
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
@@ -13,7 +14,7 @@ from audit_service.config import AuditSettings
 @lru_cache
 def get_settings() -> AuditSettings:
     """Return cached AuditSettings singleton."""
-    return AuditSettings()  # type: ignore[call-arg]
+    return AuditSettings()
 
 
 async def get_async_session(request: Request) -> AsyncGenerator[AsyncSession, None]:

@@ -15,6 +15,9 @@ on:
       - "backend/pyproject.toml"
       - ".github/workflows/ci-coa-service.yml"
 
+permissions:
+  contents: read
+
 jobs:
   lint-and-type:
     name: Lint & Type Check
@@ -39,12 +42,10 @@ jobs:
       - name: Ruff format check
         working-directory: .
         run: uv run --package coa-service ruff format --check packages/coa-service/src
-        continue-on-error: true
 
       - name: Mypy
         working-directory: .
         run: uv run --package coa-service mypy --ignore-missing-imports packages/coa-service/src
-        continue-on-error: true
 
   unit-tests:
     name: Unit Tests

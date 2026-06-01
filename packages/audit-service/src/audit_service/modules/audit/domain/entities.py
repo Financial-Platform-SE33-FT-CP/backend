@@ -1,4 +1,5 @@
 """Audit domain entities."""
+
 from __future__ import annotations
 
 import uuid
@@ -16,5 +17,5 @@ class AuditLog:
     action: str
     entity_type: str
     entity_id: str
-    changes: dict | None = None
+    changes: dict[str, object] | None = None
     timestamp: datetime = field(default_factory=datetime.utcnow)

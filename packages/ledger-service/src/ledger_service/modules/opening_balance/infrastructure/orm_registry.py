@@ -17,5 +17,5 @@ def register_opening_balance_orm_metadata() -> None:
         AccountModel.__table__,
         JournalEntryModel.__table__,
     ):
-        if table.name not in ArApBase.metadata.tables:
-            table.to_metadata(ArApBase.metadata)
+        if table.name not in ArApBase.metadata.tables:  # type: ignore[union-attr]
+            table.to_metadata(ArApBase.metadata)  # type: ignore[union-attr]

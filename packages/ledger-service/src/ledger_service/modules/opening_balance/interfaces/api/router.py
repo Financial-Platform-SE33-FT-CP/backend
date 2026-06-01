@@ -11,7 +11,6 @@ from sqlalchemy.ext.asyncio import AsyncSession
 from accounting_shared.exceptions import ValidationError
 from accounting_shared.rbac import P_ACCOUNTING_POST, P_ACCOUNTING_READ
 from accounting_shared.types import TenantId, UserId
-
 from ledger_service.deps import (
     RequireLedgerPermission,
     get_async_session,
@@ -25,9 +24,9 @@ from ledger_service.modules.opening_balance.application.opening_balance_service 
     OpeningBalanceService,
 )
 from ledger_service.modules.opening_balance.interfaces.api.schemas import (
+    OpeningImportPreviewSchema,
     OpeningImportResponse,
     OpeningValidateResponse,
-    OpeningImportPreviewSchema,
     ValidationErrorItem,
 )
 
@@ -48,9 +47,7 @@ async def download_template(
     return PlainTextResponse(
         content=opening_balance_csv_template(),
         media_type="text/csv",
-        headers={
-            "Content-Disposition": 'attachment; filename="opening_balance_template.csv"'
-        },
+        headers={"Content-Disposition": 'attachment; filename="opening_balance_template.csv"'},
     )
 
 
@@ -85,9 +82,7 @@ async def validate_opening_balance_csv(
 
     result, _issues = await service.validate_import(str(tenant_id), parsed)
     preview_data = result.get("preview")
-    preview = (
-        OpeningImportPreviewSchema(**preview_data) if preview_data else None
-    )
+    preview = OpeningImportPreviewSchema(**preview_data) if preview_data else None
     return OpeningValidateResponse(
         valid=result["valid"],
         preview=preview,

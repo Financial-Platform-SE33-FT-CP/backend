@@ -1,30 +1,116 @@
-"""AR/AP API schemas."""
+"""AR/AP API request/response schemas (US-8 invoicing)."""
+
+from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID
 
-from pydantic import BaseModel
+from pydantic import BaseModel, ConfigDict, Field
+
+from ar_ap_service.modules.ar_ap.domain.entities import Invoice
+
+
+class InvoiceLineRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: UUID
+    quantity: Decimal = Field(gt=0)
+    unit_price: Decimal = Field(ge=0)
+    description: str | None = None
+    gst_rate: Decimal = Field(default=Decimal("0"), ge=0)
+
+
+class CreateInvoiceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    customer_id: UUID
+    issue_date: date
+    due_date: date
+    lines: list[InvoiceLineRequest] = Field(min_length=1)
+
+
+class UpdateInvoiceRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    customer_id: UUID | None = None
+    issue_date: date | None = None
+    due_date: date | None = None
+    lines: list[InvoiceLineRequest] | None = Field(default=None, min_length=1)
+
+
+class InvoiceLineResponse(BaseModel):
+    id: UUID
+    account_id: UUID
+    description: str | None
+    quantity: Decimal
+    unit_price: Decimal
+    gst_rate: Decimal
+    line_total: Decimal
+    gst_amount: Decimal
 
 
 class InvoiceResponse(BaseModel):
-    """Invoice response schema."""
-
     id: UUID
-    tenant_id: UUID | None = None
-    customer_id: UUID | None = None
+    tenant_id: UUID | None
+    customer_id: UUID | None
     invoice_number: str
-    amount: Decimal
-    due_date: date | None = None
+    issue_date: date | None
+    due_date: date | None
     status: str
-    created_at: datetime | None = None
+    subtotal: Decimal
+    gst_amount: Decimal
+    total: Decimal
+    journal_entry_id: str | None
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime | None
+    lines: list[InvoiceLineResponse]
+
+    @classmethod
+    def from_entity(cls, invoice: Invoice) -> InvoiceResponse:
+        return cls(
+            id=invoice.id,
+            tenant_id=invoice.tenant_id,
+            customer_id=invoice.customer_id,
+            invoice_number=invoice.invoice_number,
+            issue_date=invoice.issue_date,
+            due_date=invoice.due_date,
+            status=invoice.status.value,
+            subtotal=invoice.subtotal,
+            gst_amount=invoice.gst_amount,
+            total=invoice.total,
+            journal_entry_id=invoice.journal_entry_id,
+            created_by=invoice.created_by,
+            created_at=invoice.created_at,
+            updated_at=invoice.updated_at,
+            lines=[
+                InvoiceLineResponse(
+                    id=line.id,
+                    account_id=line.account_id,
+                    description=line.description,
+                    quantity=line.quantity,
+                    unit_price=line.unit_price,
+                    gst_rate=line.gst_rate,
+                    line_total=line.line_total,
+                    gst_amount=line.gst_amount,
+                )
+                for line in invoice.lines
+            ],
+        )
 
 
-class PaymentResponse(BaseModel):
-    """Payment response schema."""
+class CreateCustomerRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
 
+    name: str = Field(min_length=1, max_length=255)
+    email: str | None = None
+    credit_terms_days: int | None = Field(default=None, ge=0)
+
+
+class CustomerResponse(BaseModel):
     id: UUID
-    tenant_id: UUID | None = None
-    invoice_id: UUID | None = None
-    amount: Decimal
-    payment_date: date | None = None
+    tenant_id: UUID | None
+    name: str
+    email: str | None
+    credit_terms_days: int | None

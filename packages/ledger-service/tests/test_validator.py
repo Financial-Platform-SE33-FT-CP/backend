@@ -60,9 +60,7 @@ async def test_validate_reports_imbalance() -> None:
             TrialBalanceLine(3, "3200", Decimal("0"), Decimal("50")),
         ],
     )
-    validator = OpeningBalanceValidator(
-        FakeCoaResolver({"1000": "a", "3200": "b"})
-    )
+    validator = OpeningBalanceValidator(FakeCoaResolver({"1000": "a", "3200": "b"}))
     _, _, issues = await validator.validate("t1", parsed)
     assert any(i.field == "trial_balance" for i in issues)
 
@@ -78,9 +76,7 @@ async def test_validate_ar_total_mismatch() -> None:
             ArAgingLine(4, "X", Decimal("40"), __import__("datetime").date(2026, 1, 1), "R"),
         ],
     )
-    validator = OpeningBalanceValidator(
-        FakeCoaResolver({"1100": "a", "3200": "b"})
-    )
+    validator = OpeningBalanceValidator(FakeCoaResolver({"1100": "a", "3200": "b"}))
     _, _, issues = await validator.validate("t1", parsed)
     assert any(i.field == "ar_aging" for i in issues)
 
@@ -96,9 +92,7 @@ async def test_validate_ap_total_mismatch() -> None:
             ApAgingLine(4, "V", Decimal("50"), __import__("datetime").date(2026, 1, 1), "B1"),
         ],
     )
-    validator = OpeningBalanceValidator(
-        FakeCoaResolver({"2000": "a", "3200": "b"})
-    )
+    validator = OpeningBalanceValidator(FakeCoaResolver({"2000": "a", "3200": "b"}))
     _, _, issues = await validator.validate("t1", parsed)
     assert any(i.field == "ap_aging" for i in issues)
 
@@ -129,8 +123,6 @@ async def test_validate_duplicate_ar_reference() -> None:
             ArAgingLine(5, "B", Decimal("10"), d, "DUP"),
         ],
     )
-    validator = OpeningBalanceValidator(
-        FakeCoaResolver({"1100": "a", "3200": "b"})
-    )
+    validator = OpeningBalanceValidator(FakeCoaResolver({"1100": "a", "3200": "b"}))
     _, _, issues = await validator.validate("t1", parsed)
     assert any(i.field == "reference" for i in issues)

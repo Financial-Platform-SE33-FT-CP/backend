@@ -1,8 +1,8 @@
 from __future__ import annotations
 
 import pytest
-from accounting_shared.exceptions import ValidationError
 
+from accounting_shared.exceptions import ValidationError
 from ledger_service.modules.opening_balance.application.validator import (
     OpeningBalanceValidator,
 )

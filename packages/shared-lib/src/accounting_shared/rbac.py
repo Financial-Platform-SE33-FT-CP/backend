@@ -136,5 +136,5 @@ def permissions_for_role_string(role_str: str) -> frozenset[str]:
 
 
 def expand_legacy_role_string(role_str: str) -> str:
-    """Return canonical UPPER role string; maps legacy / portal aliases to OWNER/ACCOUNTANT/VIEWER."""
+    """Return canonical UPPER role string; maps legacy / portal aliases to OWNER/ACCOUNTANT/VIEWER."""  # noqa: E501
     return normalize_role(role_str).value

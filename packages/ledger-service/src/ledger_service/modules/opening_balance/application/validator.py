@@ -5,7 +5,6 @@ from __future__ import annotations
 from decimal import Decimal
 
 from accounting_shared.exceptions import ValidationError
-
 from ledger_service.modules.opening_balance.domain.entities import (
     OpeningImportPreview,
     ParsedOpeningImport,
@@ -21,9 +20,7 @@ BALANCE_TOLERANCE = Decimal("0.01")
 class CoaAccountResolver:
     """Resolve account codes to IDs for a tenant."""
 
-    async def resolve_codes(
-        self, tenant_id: str, codes: set[str]
-    ) -> dict[str, str]:
+    async def resolve_codes(self, tenant_id: str, codes: set[str]) -> dict[str, str]:
         raise NotImplementedError
 
 
@@ -173,11 +170,7 @@ class OpeningBalanceValidator:
         if not issues:
             return
         detail = "; ".join(
-            (
-                f"Row {i.row}: {i.message}"
-                if i.row is not None
-                else f"{i.field}: {i.message}"
-            )
+            (f"Row {i.row}: {i.message}" if i.row is not None else f"{i.field}: {i.message}")
             for i in issues
         )
         raise ValidationError(detail)

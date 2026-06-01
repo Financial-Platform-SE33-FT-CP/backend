@@ -15,6 +15,9 @@ on:
       - "backend/pyproject.toml"
       - ".github/workflows/ci-ledger-service.yml"
 
+permissions:
+  contents: read
+
 jobs:
   lint-and-type:
     name: Lint & Type Check
@@ -39,12 +42,10 @@ jobs:
       - name: Ruff format check
         working-directory: .
         run: uv run --package ledger-service ruff format --check packages/ledger-service/src
-        continue-on-error: true
 
       - name: Mypy
         working-directory: .
         run: uv run --package ledger-service mypy --ignore-missing-imports packages/ledger-service/src
-        continue-on-error: true
 
   unit-tests:
     name: Unit Tests

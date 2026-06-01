@@ -1,4 +1,5 @@
 """Audit Service — FastAPI application."""
+
 from __future__ import annotations
 
 from collections.abc import AsyncGenerator
@@ -12,7 +13,6 @@ from accounting_shared.exceptions import register_exception_handlers
 from accounting_shared.logging import setup_logging
 from accounting_shared.middleware.request_id import RequestIDMiddleware
 from accounting_shared.middleware.tenant_context import TenantContextMiddleware
-
 from audit_service.config import AuditSettings
 from audit_service.modules.audit.interfaces.api.router import router as audit_router
 
@@ -20,7 +20,7 @@ from audit_service.modules.audit.interfaces.api.router import router as audit_ro
 @asynccontextmanager
 async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     """Application lifespan: setup and teardown."""
-    settings = AuditSettings()  # type: ignore[call-arg]
+    settings = AuditSettings()
     setup_logging(log_level=settings.log_level)
 
     engine = create_engine(settings)

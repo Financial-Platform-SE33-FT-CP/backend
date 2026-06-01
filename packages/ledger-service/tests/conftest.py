@@ -11,13 +11,13 @@ import importlib
 import logging
 import uuid
 from collections.abc import AsyncGenerator, Iterator
-from datetime import date, datetime
+from datetime import date
 from pathlib import Path
 
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
-from sqlalchemy import Date, String, Table, Uuid, text
+from sqlalchemy import Column, String, Table, Uuid, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from coa_service.modules.coa.infrastructure.models import AccountModel
@@ -54,16 +54,28 @@ async def tables(engine):
         await conn.execute(text("PRAGMA foreign_keys=OFF"))
 
         def create_journal_tables(sync_conn) -> None:
+            # Stub tenants table in AccountModel's metadata to satisfy the FK
+            # on chart_of_accounts.tenant_id when SQLite resolves the constraint.
+            _ = Table(
+                "tenants",
+                AccountModel.metadata,
+                Column("id", Uuid(as_uuid=True), primary_key=True),
+                Column("name", String(255)),
+                extend_existing=True,
+            )
             AccountModel.__table__.create(sync_conn, checkfirst=True)
             JournalEntryModel.__table__.create(sync_conn, checkfirst=True)
             JournalEntryLineModel.__table__.create(sync_conn, checkfirst=True)
+
         await conn.run_sync(create_journal_tables)
     yield
     async with engine.begin() as conn:
+
         def drop_journal_tables(sync_conn) -> None:
             JournalEntryLineModel.__table__.drop(sync_conn, checkfirst=True)
             JournalEntryModel.__table__.drop(sync_conn, checkfirst=True)
             AccountModel.__table__.drop(sync_conn, checkfirst=True)
+
         await conn.run_sync(drop_journal_tables)
 
 
@@ -87,11 +99,10 @@ def _configure_env(monkeypatch: pytest.MonkeyPatch, sqlite_url: str) -> None:
 
 
 async def _create_all(engine: object) -> None:
-    from sqlalchemy import Column, MetaData
+    from sqlalchemy import Column, DateTime, Boolean
 
     from ledger_service.modules.ledger.infrastructure.models import Base
 
-    # Create stub tables for cross-service FK references
     metadata = Base.metadata
     _ = Table(
         "tenants",
@@ -100,12 +111,23 @@ async def _create_all(engine: object) -> None:
         Column("name", String(255)),
         extend_existing=True,
     )
+    # Stub chart_of_accounts table matching AccountModel columns needed by
+    # ledger-side FK references and AccountModel ORM queries.
+    # Columns not provided by raw-SQL _seed_ helpers use server_default / nullable
+    # so inserts succeed without specifying every column.
     _ = Table(
         "chart_of_accounts",
         metadata,
         Column("id", Uuid(as_uuid=True), primary_key=True),
-        Column("code", String(20)),
-        Column("name", String(255)),
+        Column("tenant_id", Uuid(as_uuid=True), nullable=False),
+        Column("code", String(20), nullable=False),
+        Column("name", String(255), nullable=False),
+        Column("type", String(50), nullable=False),
+        Column("parent_id", Uuid(as_uuid=True), nullable=True),
+        Column("is_active", Boolean, nullable=False, server_default="1"),
+        Column("is_system_default", Boolean, nullable=False, server_default="0"),
+        Column("created_at", DateTime, nullable=False, server_default=text("(datetime('now'))")),
+        Column("updated_at", DateTime, nullable=False, server_default=text("(datetime('now'))")),
         extend_existing=True,
     )
 

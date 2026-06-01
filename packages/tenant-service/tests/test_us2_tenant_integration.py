@@ -166,10 +166,16 @@ async def test_create_tenant_success(
         ).scalar_one()
         assert tu.role == "OWNER"
         coa_count = (
-            await s.execute(select(AccountModel).where(AccountModel.tenant_id == tid))
-        ).scalars().all()
+            (await s.execute(select(AccountModel).where(AccountModel.tenant_id == tid)))
+            .scalars()
+            .all()
+        )
         assert len(coa_count) == 24
-        logs = (await s.execute(select(AuditLogModel).where(AuditLogModel.tenant_id == tid))).scalars().all()
+        logs = (
+            (await s.execute(select(AuditLogModel).where(AuditLogModel.tenant_id == tid)))
+            .scalars()
+            .all()
+        )
         assert len(logs) == 1
         assert logs[0].action == "TENANT_CREATED"
         assert logs[0].entity_type == "tenant"

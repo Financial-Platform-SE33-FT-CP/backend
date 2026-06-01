@@ -9,7 +9,7 @@ from pydantic_settings import SettingsConfigDict
 _BACKEND_ROOT_ENV = Path(__file__).resolve().parents[4] / ".env"
 
 
-class AuthSettings(SharedSettings):
+class AuthSettings(SharedSettings):  # type: ignore[misc]
     """Auth-service-specific settings extending shared configuration."""
 
     model_config = SettingsConfigDict(
