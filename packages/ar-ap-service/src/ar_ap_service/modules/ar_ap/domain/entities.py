@@ -131,3 +131,51 @@ class JournalLineInput:
     debit_amount: Decimal = _ZERO
     credit_amount: Decimal = _ZERO
     description: str | None = None
+
+
+class PaymentMethod(StrEnum):
+    """How a customer settled an invoice (US-9)."""
+
+    BANK_TRANSFER = "bank_transfer"
+    CASH = "cash"
+    CHEQUE = "cheque"
+    CARD = "card"
+    OTHER = "other"
+
+
+@dataclass
+class Payment:
+    """A customer payment recorded against a single issued invoice (US-9).
+
+    A payment is immutable once posted: it always carries the id of the balanced
+    journal entry (Debit bank/cash, Credit Accounts Receivable) created alongside
+    it. Corrections are made via reversals/credit notes, never by editing.
+    """
+
+    invoice_id: UUID
+    amount: Decimal
+    deposit_account_id: UUID | None
+    id: UUID = field(default_factory=uuid4)
+    tenant_id: UUID | None = None
+    customer_id: UUID | None = None
+    payment_date: date | None = None
+    payment_method: PaymentMethod = PaymentMethod.BANK_TRANSFER
+    reference: str | None = None
+    journal_entry_id: str | None = None
+    idempotency_key: str | None = None
+    created_by: UUID | None = None
+    created_at: datetime = field(default_factory=datetime.utcnow)
+
+
+@dataclass(frozen=True)
+class InvoiceSettlement:
+    """Snapshot of how much of an invoice has been settled by posted payments."""
+
+    invoice_total: Decimal
+    amount_paid: Decimal
+
+    @property
+    def outstanding(self) -> Decimal:
+        """Remaining balance still owed on the invoice (never below zero)."""
+        remaining = self.invoice_total - self.amount_paid
+        return remaining if remaining > _ZERO else _ZERO

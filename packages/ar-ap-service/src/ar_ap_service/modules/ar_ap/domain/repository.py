@@ -5,6 +5,7 @@ from __future__ import annotations
 from abc import ABC, abstractmethod
 from collections.abc import Sequence
 from datetime import date
+from decimal import Decimal
 from uuid import UUID
 
 from ar_ap_service.modules.ar_ap.domain.entities import (
@@ -12,6 +13,7 @@ from ar_ap_service.modules.ar_ap.domain.entities import (
     Customer,
     Invoice,
     JournalLineInput,
+    Payment,
 )
 
 
@@ -64,6 +66,47 @@ class CustomerRepository(ABC):
     async def add(self, customer: Customer) -> Customer: ...
 
 
+class PaymentRepository(ABC):
+    """Persistence port for customer payments (always tenant-scoped, US-9).
+
+    Payments are immutable financial records: this port intentionally exposes no
+    update or delete method.
+    """
+
+    @abstractmethod
+    async def add(self, payment: Payment) -> Payment:
+        """Persist a new posted payment."""
+
+    @abstractmethod
+    async def get_by_id(self, tenant_id: UUID, payment_id: UUID) -> Payment | None:
+        """Return a payment, or ``None`` if it is not in this tenant."""
+
+    @abstractmethod
+    async def list_by_invoice(self, tenant_id: UUID, invoice_id: UUID) -> list[Payment]:
+        """List a tenant's payments for one invoice, oldest first."""
+
+    @abstractmethod
+    async def list_by_tenant(
+        self,
+        tenant_id: UUID,
+        *,
+        invoice_id: UUID | None = None,
+        customer_id: UUID | None = None,
+        payment_method: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> list[Payment]:
+        """List a tenant's payments, newest first, with optional filters."""
+
+    @abstractmethod
+    async def sum_paid_for_invoice(self, tenant_id: UUID, invoice_id: UUID) -> Decimal:
+        """Return the total amount already posted against an invoice."""
+
+    @abstractmethod
+    async def get_by_idempotency_key(self, tenant_id: UUID, key: str) -> Payment | None:
+        """Return an existing payment for an idempotency key, if any."""
+
+
 class AccountReader(ABC):
     """Read-only gateway into the Chart of Accounts (owned by coa-service)."""
 
@@ -96,5 +139,10 @@ class LedgerPoster(ABC):
         source_id: str,
         created_by: UUID | None,
         lines: Sequence[JournalLineInput],
+        source_type: str = "invoice",
     ) -> str:
-        """Persist a balanced journal entry and return its id."""
+        """Persist a balanced journal entry and return its id.
+
+        ``source_type`` ties the entry back to its originating document
+        ("invoice", "payment", ...) so the ledger can be traced per source.
+        """

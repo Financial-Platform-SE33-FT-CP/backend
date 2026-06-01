@@ -8,6 +8,8 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
+from ar_ap_service.modules.ar_ap.domain.entities import PaymentMethod
+
 
 class InvoiceLineInput(BaseModel):
     """A single invoice line supplied by the client."""
@@ -45,3 +47,21 @@ class UpdateInvoiceCommand(BaseModel):
     issue_date: date | None = None
     due_date: date | None = None
     lines: list[InvoiceLineInput] | None = Field(default=None, min_length=1)
+
+
+class RecordPaymentCommand(BaseModel):
+    """Payload for recording a customer payment against an issued invoice (US-9).
+
+    ``tenant_id`` and ``customer_id`` are intentionally absent: tenant comes from
+    the authenticated context and the customer is derived from the invoice. The
+    backend computes the outstanding balance; the client never supplies it.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    payment_date: date
+    amount: Decimal = Field(gt=0)
+    payment_method: PaymentMethod = PaymentMethod.BANK_TRANSFER
+    reference: str | None = Field(default=None, max_length=255)
+    deposit_account_id: UUID
+    idempotency_key: str | None = Field(default=None, max_length=255)

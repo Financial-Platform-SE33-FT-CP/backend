@@ -243,14 +243,42 @@ class GstTransactionModel(Base):  # type: ignore[misc, valid-type]
 
 
 class PaymentModel(Base):  # type: ignore[misc, valid-type]
-    """SQLAlchemy model for the payments table."""
+    """SQLAlchemy model for the payments table (US-9: record customer payments)."""
 
     __tablename__ = "payments"
+    __table_args__ = (
+        UniqueConstraint("tenant_id", "idempotency_key", name="uq_payments_tenant_idempotency_key"),
+    )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(UUID(as_uuid=True), nullable=False, index=True)
-    invoice_id = Column(UUID(as_uuid=True), ForeignKey("invoices.id"), nullable=False)
-    amount = Column(Numeric(12, 2), nullable=False, default=Decimal("0.00"))
-    payment_date = Column(Date, nullable=True)
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    invoice_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("invoices.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    customer_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("customers.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0.00"))
+    payment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    payment_method: Mapped[str] = mapped_column(String(32), nullable=False, default="bank_transfer")
+    reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    deposit_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("chart_of_accounts.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    journal_entry_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("journal_entries.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
-    invoice = relationship("InvoiceModel", back_populates="payments")
+    invoice: Mapped["InvoiceModel"] = relationship("InvoiceModel", back_populates="payments")

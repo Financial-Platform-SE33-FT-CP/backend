@@ -6,7 +6,7 @@ from datetime import date
 from typing import Annotated
 from uuid import UUID
 
-from fastapi import APIRouter, Depends, Query, status
+from fastapi import APIRouter, Depends, Header, Query, status
 from fastapi.responses import Response
 
 from accounting_shared.rbac import (
@@ -21,20 +21,25 @@ from ar_ap_service.deps import (
     RequireArApPermission,
     get_current_user_id,
     get_invoice_service,
+    get_payment_service,
     require_tenant_id,
 )
 from ar_ap_service.modules.ar_ap.application.dto import (
     CreateInvoiceCommand,
     InvoiceLineInput,
+    RecordPaymentCommand,
     UpdateInvoiceCommand,
 )
-from ar_ap_service.modules.ar_ap.application.services import InvoiceService
+from ar_ap_service.modules.ar_ap.application.services import InvoiceService, PaymentService
 from ar_ap_service.modules.ar_ap.domain.entities import Customer
 from ar_ap_service.modules.ar_ap.interfaces.api.schemas import (
     CreateCustomerRequest,
     CreateInvoiceRequest,
     CustomerResponse,
     InvoiceResponse,
+    InvoiceSettlementResponse,
+    PaymentResponse,
+    RecordPaymentRequest,
     UpdateInvoiceRequest,
 )
 
@@ -227,3 +232,90 @@ async def list_customers(
         )
         for c in customers
     ]
+
+
+# ── payments (US-9) ──────────────────────────────────────────────────────────
+
+
+@router.post(
+    "/invoices/{invoice_id}/payments",
+    response_model=PaymentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def record_payment(
+    invoice_id: UUID,
+    body: RecordPaymentRequest,
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_POST))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    user_id: Annotated[UserId, Depends(get_current_user_id)],
+    service: Annotated[PaymentService, Depends(get_payment_service)],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> PaymentResponse:
+    command = RecordPaymentCommand(
+        payment_date=body.payment_date,
+        amount=body.amount,
+        payment_method=body.payment_method,
+        reference=body.reference,
+        deposit_account_id=body.deposit_account_id,
+        idempotency_key=body.idempotency_key or idempotency_key,
+    )
+    payment = await service.record_payment(tenant_id, invoice_id, command, user_id)
+    return PaymentResponse.from_entity(payment)
+
+
+@router.get("/invoices/{invoice_id}/payments", response_model=list[PaymentResponse])
+async def list_invoice_payments(
+    invoice_id: UUID,
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[PaymentService, Depends(get_payment_service)],
+) -> list[PaymentResponse]:
+    payments = await service.list_invoice_payments(tenant_id, invoice_id)
+    return [PaymentResponse.from_entity(p) for p in payments]
+
+
+@router.get(
+    "/invoices/{invoice_id}/settlement",
+    response_model=InvoiceSettlementResponse,
+)
+async def get_invoice_settlement(
+    invoice_id: UUID,
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[PaymentService, Depends(get_payment_service)],
+) -> InvoiceSettlementResponse:
+    settlement = await service.get_invoice_settlement(tenant_id, invoice_id)
+    return InvoiceSettlementResponse.from_entity(invoice_id, settlement)
+
+
+@router.get("/payments", response_model=list[PaymentResponse])
+async def list_payments(
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[PaymentService, Depends(get_payment_service)],
+    invoice_id: UUID | None = None,
+    customer_id: UUID | None = None,
+    payment_method: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> list[PaymentResponse]:
+    payments = await service.list_payments(
+        tenant_id,
+        invoice_id=invoice_id,
+        customer_id=customer_id,
+        payment_method=payment_method,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return [PaymentResponse.from_entity(p) for p in payments]
+
+
+@router.get("/payments/{payment_id}", response_model=PaymentResponse)
+async def get_payment(
+    payment_id: UUID,
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[PaymentService, Depends(get_payment_service)],
+) -> PaymentResponse:
+    payment = await service.get_payment(tenant_id, payment_id)
+    return PaymentResponse.from_entity(payment)

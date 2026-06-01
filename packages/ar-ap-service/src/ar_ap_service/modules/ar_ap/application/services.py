@@ -15,6 +15,7 @@ from ar_ap_service.config import ArApSettings
 from ar_ap_service.modules.ar_ap.application.dto import (
     CreateInvoiceCommand,
     InvoiceLineInput,
+    RecordPaymentCommand,
     UpdateInvoiceCommand,
 )
 from ar_ap_service.modules.ar_ap.domain.entities import (
@@ -22,18 +23,26 @@ from ar_ap_service.modules.ar_ap.domain.entities import (
     Customer,
     Invoice,
     InvoiceLine,
+    InvoiceSettlement,
     InvoiceStatus,
     JournalLineInput,
+    Payment,
 )
 from ar_ap_service.modules.ar_ap.domain.repository import (
     AccountReader,
     CustomerRepository,
     InvoiceRepository,
     LedgerPoster,
+    PaymentRepository,
 )
 
 _ZERO = Decimal("0.00")
 _REVENUE_TYPE = "revenue"
+_ASSET_TYPE = "asset"
+#: Invoice statuses against which a customer payment may be recorded (US-9).
+_PAYABLE_STATUSES: frozenset[InvoiceStatus] = frozenset(
+    {InvoiceStatus.ISSUED, InvoiceStatus.PARTIAL, InvoiceStatus.OVERDUE}
+)
 
 
 class InvoiceService:
@@ -382,3 +391,212 @@ class InvoiceService:
         prefix = f"INV-{issue_date.year}-"
         existing = await self._invoices.count_with_number_prefix(tenant_id, prefix)
         return f"{prefix}{existing + 1:04d}"
+
+
+class PaymentService:
+    """Records customer payments against issued invoices (US-9).
+
+    Recording a payment is a single atomic operation: validate the invoice and
+    deposit account, compute the outstanding balance, post a balanced journal
+    entry (Debit bank/cash, Credit Accounts Receivable), persist the payment with
+    its ``journal_entry_id`` and roll the invoice status forward to partial/paid.
+    Everything runs on the caller's transaction, so if journal posting fails the
+    payment is never saved and the invoice status never changes.
+    """
+
+    def __init__(
+        self,
+        *,
+        payments: PaymentRepository,
+        invoices: InvoiceRepository,
+        customers: CustomerRepository,
+        accounts: AccountReader,
+        ledger: LedgerPoster,
+        settings: ArApSettings,
+    ) -> None:
+        self._payments = payments
+        self._invoices = invoices
+        self._customers = customers
+        self._accounts = accounts
+        self._ledger = ledger
+        self._settings = settings
+
+    # ── reads ──────────────────────────────────────────────────────────────────
+
+    async def get_payment(self, tenant_id: UUID, payment_id: UUID) -> Payment:
+        payment = await self._payments.get_by_id(tenant_id, payment_id)
+        if payment is None:
+            raise NotFoundError("Payment not found.")
+        return payment
+
+    async def list_invoice_payments(self, tenant_id: UUID, invoice_id: UUID) -> list[Payment]:
+        # Enforce tenant ownership of the invoice before exposing its payments.
+        await self._require_invoice(tenant_id, invoice_id)
+        return await self._payments.list_by_invoice(tenant_id, invoice_id)
+
+    async def list_payments(
+        self,
+        tenant_id: UUID,
+        *,
+        invoice_id: UUID | None = None,
+        customer_id: UUID | None = None,
+        payment_method: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> list[Payment]:
+        return await self._payments.list_by_tenant(
+            tenant_id,
+            invoice_id=invoice_id,
+            customer_id=customer_id,
+            payment_method=payment_method,
+            date_from=date_from,
+            date_to=date_to,
+        )
+
+    async def get_invoice_settlement(self, tenant_id: UUID, invoice_id: UUID) -> InvoiceSettlement:
+        """Return invoice total and amount already paid (for outstanding balance)."""
+        invoice = await self._require_invoice(tenant_id, invoice_id)
+        paid = await self._payments.sum_paid_for_invoice(tenant_id, invoice_id)
+        return InvoiceSettlement(invoice_total=invoice.total, amount_paid=paid)
+
+    # ── record payment ───────────────────────────────────────────────────────
+
+    async def record_payment(
+        self,
+        tenant_id: UUID,
+        invoice_id: UUID,
+        command: RecordPaymentCommand,
+        recorded_by: UUID | None,
+    ) -> Payment:
+        """Record a (full or partial) payment and post its journal entry atomically."""
+        # Idempotency: a retry carrying a previously seen key returns the original
+        # payment instead of double-posting.
+        if command.idempotency_key:
+            existing = await self._payments.get_by_idempotency_key(
+                tenant_id, command.idempotency_key
+            )
+            if existing is not None:
+                return existing
+
+        invoice = await self._require_invoice(tenant_id, invoice_id)
+
+        if invoice.status == InvoiceStatus.DRAFT:
+            raise ConflictError("Cannot record a payment for a draft invoice; issue it first.")
+        if invoice.status == InvoiceStatus.PAID:
+            raise ConflictError("Invoice is already fully paid.")
+        if invoice.status not in _PAYABLE_STATUSES:
+            raise ConflictError(
+                f"Cannot record a payment for an invoice with status {invoice.status.value!r}."
+            )
+
+        amount = command.amount.quantize(_ZERO)
+        if amount <= _ZERO:
+            raise ValidationError("Payment amount must be greater than zero.")
+
+        already_paid = await self._payments.sum_paid_for_invoice(tenant_id, invoice_id)
+        outstanding = invoice.total - already_paid
+        if outstanding <= _ZERO:
+            raise ConflictError("Invoice is already fully paid.")
+        if amount > outstanding:
+            raise ValidationError(
+                f"Payment amount {amount} exceeds the outstanding balance {outstanding}."
+            )
+
+        deposit_account = await self._resolve_deposit_account(tenant_id, command.deposit_account_id)
+        ar_account = await self._require_account_by_code(tenant_id)
+
+        if await self._ledger.is_period_closed(tenant_id, command.payment_date):
+            raise ConflictError(
+                f"Cannot record payment: {command.payment_date} is in a closed accounting period."
+            )
+
+        payment = Payment(
+            tenant_id=tenant_id,
+            invoice_id=invoice.id,
+            customer_id=invoice.customer_id,
+            amount=amount,
+            payment_date=command.payment_date,
+            payment_method=command.payment_method,
+            reference=command.reference,
+            deposit_account_id=deposit_account.id,
+            idempotency_key=command.idempotency_key,
+            created_by=recorded_by,
+            created_at=datetime.utcnow(),
+        )
+
+        reference = self._build_journal_reference(invoice, command.reference)
+        journal_lines = [
+            JournalLineInput(
+                account_id=str(deposit_account.id),
+                debit_amount=amount,
+                credit_amount=_ZERO,
+                description=f"Payment received — {deposit_account.name}",
+            ),
+            JournalLineInput(
+                account_id=str(ar_account.id),
+                debit_amount=_ZERO,
+                credit_amount=amount,
+                description=(
+                    f"Accounts receivable — invoice {invoice.invoice_number or invoice.id}"
+                ),
+            ),
+        ]
+
+        journal_entry_id = await self._ledger.post_journal_entry(
+            tenant_id=tenant_id,
+            entry_date=command.payment_date,
+            reference=reference,
+            description=f"Payment for invoice {invoice.invoice_number or invoice.id}",
+            source_id=str(payment.id),
+            source_type="payment",
+            created_by=recorded_by,
+            lines=journal_lines,
+        )
+        payment.journal_entry_id = journal_entry_id
+
+        saved = await self._payments.add(payment)
+
+        total_paid_after = already_paid + amount
+        invoice.status = (
+            InvoiceStatus.PAID if total_paid_after >= invoice.total else InvoiceStatus.PARTIAL
+        )
+        invoice.updated_at = datetime.utcnow()
+        await self._invoices.update(invoice)
+
+        return saved
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+
+    async def _require_invoice(self, tenant_id: UUID, invoice_id: UUID) -> Invoice:
+        invoice = await self._invoices.get_by_id(tenant_id, invoice_id)
+        if invoice is None:
+            raise NotFoundError("Invoice not found.")
+        return invoice
+
+    async def _resolve_deposit_account(self, tenant_id: UUID, account_id: UUID) -> AccountInfo:
+        account = await self._accounts.get_by_id(tenant_id, account_id)
+        if account is None:
+            raise ValidationError("Deposit account not found for this tenant.")
+        if not account.is_active:
+            raise ValidationError(f"Deposit account {account.code} is not active.")
+        if account.account_type != _ASSET_TYPE:
+            raise ValidationError(
+                f"Deposit account {account.code} must be an asset (bank/cash) account."
+            )
+        return account
+
+    async def _require_account_by_code(self, tenant_id: UUID) -> AccountInfo:
+        code = self._settings.ar_control_account_code
+        account = await self._accounts.get_by_code(tenant_id, code)
+        if account is None:
+            raise ValidationError(
+                f"Accounts Receivable account (code {code}) is not configured for this tenant."
+            )
+        return account
+
+    @staticmethod
+    def _build_journal_reference(invoice: Invoice, payment_reference: str | None) -> str:
+        invoice_ref = invoice.invoice_number or str(invoice.id)
+        if payment_reference:
+            return f"PAY {invoice_ref} / {payment_reference}"
+        return f"PAY {invoice_ref}"
