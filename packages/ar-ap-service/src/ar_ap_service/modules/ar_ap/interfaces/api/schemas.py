@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from ar_ap_service.modules.ar_ap.domain.entities import (
+    CreditNote,
     Invoice,
     InvoiceSettlement,
     Payment,
@@ -179,4 +180,87 @@ class InvoiceSettlementResponse(BaseModel):
             invoice_total=settlement.invoice_total,
             amount_paid=settlement.amount_paid,
             outstanding=settlement.outstanding,
+        )
+
+
+class CreditNoteLineRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: UUID
+    quantity: Decimal = Field(gt=0)
+    unit_price: Decimal = Field(ge=0)
+    description: str | None = None
+    gst_rate: Decimal = Field(default=Decimal("0"), ge=0)
+    invoice_line_id: UUID | None = None
+
+
+class IssueCreditNoteRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    issue_date: date
+    reason: str | None = Field(default=None, max_length=500)
+    lines: list[CreditNoteLineRequest] = Field(min_length=1)
+    idempotency_key: str | None = Field(default=None, max_length=255)
+
+
+class CreditNoteLineResponse(BaseModel):
+    id: UUID
+    account_id: UUID
+    invoice_line_id: UUID | None
+    description: str | None
+    quantity: Decimal
+    unit_price: Decimal
+    gst_rate: Decimal
+    line_total: Decimal
+    gst_amount: Decimal
+
+
+class CreditNoteResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID | None
+    invoice_id: UUID
+    customer_id: UUID | None
+    credit_note_number: str
+    issue_date: date | None
+    reason: str | None
+    status: str
+    subtotal: Decimal
+    gst_amount: Decimal
+    total: Decimal
+    journal_entry_id: str | None
+    created_by: UUID | None
+    created_at: datetime
+    lines: list[CreditNoteLineResponse]
+
+    @classmethod
+    def from_entity(cls, credit_note: CreditNote) -> CreditNoteResponse:
+        return cls(
+            id=credit_note.id,
+            tenant_id=credit_note.tenant_id,
+            invoice_id=credit_note.invoice_id,
+            customer_id=credit_note.customer_id,
+            credit_note_number=credit_note.credit_note_number,
+            issue_date=credit_note.issue_date,
+            reason=credit_note.reason,
+            status=credit_note.status.value,
+            subtotal=credit_note.subtotal,
+            gst_amount=credit_note.gst_amount,
+            total=credit_note.total,
+            journal_entry_id=credit_note.journal_entry_id,
+            created_by=credit_note.created_by,
+            created_at=credit_note.created_at,
+            lines=[
+                CreditNoteLineResponse(
+                    id=line.id,
+                    account_id=line.account_id,
+                    invoice_line_id=line.invoice_line_id,
+                    description=line.description,
+                    quantity=line.quantity,
+                    unit_price=line.unit_price,
+                    gst_rate=line.gst_rate,
+                    line_total=line.line_total,
+                    gst_amount=line.gst_amount,
+                )
+                for line in credit_note.lines
+            ],
         )

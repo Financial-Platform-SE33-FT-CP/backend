@@ -179,3 +179,82 @@ class InvoiceSettlement:
         """Remaining balance still owed on the invoice (never below zero)."""
         remaining = self.invoice_total - self.amount_paid
         return remaining if remaining > _ZERO else _ZERO
+
+
+class CreditNoteStatus(StrEnum):
+    """Lifecycle of a credit note (US-10).
+
+    A credit note is posted as ``ISSUED`` and is immutable thereafter. ``VOIDED``
+    is reserved for a future void/reverse flow and is not produced by US-10.
+    """
+
+    ISSUED = "issued"
+    VOIDED = "voided"
+
+
+@dataclass
+class CreditNoteLine:
+    """A single line on a credit note that reverses/reduces invoice revenue.
+
+    ``line_total`` is the net (pre-GST) amount being credited; ``gst_amount`` is
+    the GST being reversed on that line. Both are derived on the backend from
+    quantity, unit price and GST rate — the client never supplies totals.
+    """
+
+    account_id: UUID
+    quantity: Decimal
+    unit_price: Decimal
+    description: str | None = None
+    gst_rate: Decimal = _ZERO
+    invoice_line_id: UUID | None = None
+    id: UUID = field(default_factory=uuid4)
+    credit_note_id: UUID | None = None
+    line_total: Decimal = _ZERO
+    gst_amount: Decimal = _ZERO
+
+    def recalculate(self) -> None:
+        """Recompute ``line_total`` and ``gst_amount`` from quantity/price/rate."""
+        net = _money(self.quantity * self.unit_price)
+        self.line_total = net
+        self.gst_amount = _money(net * (self.gst_rate or _ZERO))
+
+
+@dataclass
+class CreditNote:
+    """A credit note issued against an existing issued invoice (US-10).
+
+    Issuing a credit note posts a balanced reversal/adjustment journal entry
+    (Debit Revenue, Debit GST Output, Credit Accounts Receivable) and is
+    immutable once posted: it always carries the id of that journal entry.
+    Corrections to issued invoices are made through credit notes, never by
+    editing the original invoice or its journal entry.
+    """
+
+    invoice_id: UUID
+    id: UUID = field(default_factory=uuid4)
+    tenant_id: UUID | None = None
+    customer_id: UUID | None = None
+    credit_note_number: str = ""
+    issue_date: date | None = None
+    reason: str | None = None
+    status: CreditNoteStatus = CreditNoteStatus.ISSUED
+    subtotal: Decimal = _ZERO
+    gst_amount: Decimal = _ZERO
+    total: Decimal = _ZERO
+    journal_entry_id: str | None = None
+    idempotency_key: str | None = None
+    created_by: UUID | None = None
+    created_at: datetime = field(default_factory=datetime.utcnow)
+    lines: list[CreditNoteLine] = field(default_factory=list)
+
+    def recalculate_totals(self) -> None:
+        """Recompute line amounts and roll them up into credit-note-level totals."""
+        subtotal = _ZERO
+        gst = _ZERO
+        for line in self.lines:
+            line.recalculate()
+            subtotal += line.line_total
+            gst += line.gst_amount
+        self.subtotal = _money(subtotal)
+        self.gst_amount = _money(gst)
+        self.total = _money(self.subtotal + self.gst_amount)

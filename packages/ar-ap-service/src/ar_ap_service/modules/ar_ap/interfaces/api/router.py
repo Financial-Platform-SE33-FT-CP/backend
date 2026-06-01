@@ -19,6 +19,7 @@ from accounting_shared.rbac import (
 from accounting_shared.types import TenantId, UserId
 from ar_ap_service.deps import (
     RequireArApPermission,
+    get_credit_note_service,
     get_current_user_id,
     get_invoice_service,
     get_payment_service,
@@ -26,18 +27,26 @@ from ar_ap_service.deps import (
 )
 from ar_ap_service.modules.ar_ap.application.dto import (
     CreateInvoiceCommand,
+    CreditNoteLineInput,
     InvoiceLineInput,
+    IssueCreditNoteCommand,
     RecordPaymentCommand,
     UpdateInvoiceCommand,
 )
-from ar_ap_service.modules.ar_ap.application.services import InvoiceService, PaymentService
+from ar_ap_service.modules.ar_ap.application.services import (
+    CreditNoteService,
+    InvoiceService,
+    PaymentService,
+)
 from ar_ap_service.modules.ar_ap.domain.entities import Customer
 from ar_ap_service.modules.ar_ap.interfaces.api.schemas import (
     CreateCustomerRequest,
     CreateInvoiceRequest,
+    CreditNoteResponse,
     CustomerResponse,
     InvoiceResponse,
     InvoiceSettlementResponse,
+    IssueCreditNoteRequest,
     PaymentResponse,
     RecordPaymentRequest,
     UpdateInvoiceRequest,
@@ -319,3 +328,92 @@ async def get_payment(
 ) -> PaymentResponse:
     payment = await service.get_payment(tenant_id, payment_id)
     return PaymentResponse.from_entity(payment)
+
+
+# ── credit notes (US-10) ─────────────────────────────────────────────────────
+
+
+def _to_issue_credit_note_command(
+    body: IssueCreditNoteRequest,
+    header_idempotency_key: str | None,
+) -> IssueCreditNoteCommand:
+    return IssueCreditNoteCommand(
+        issue_date=body.issue_date,
+        reason=body.reason,
+        lines=[
+            CreditNoteLineInput(
+                account_id=line.account_id,
+                quantity=line.quantity,
+                unit_price=line.unit_price,
+                description=line.description,
+                gst_rate=line.gst_rate,
+                invoice_line_id=line.invoice_line_id,
+            )
+            for line in body.lines
+        ],
+        idempotency_key=body.idempotency_key or header_idempotency_key,
+    )
+
+
+@router.post(
+    "/invoices/{invoice_id}/credit-notes",
+    response_model=CreditNoteResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def issue_credit_note(
+    invoice_id: UUID,
+    body: IssueCreditNoteRequest,
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_POST))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    user_id: Annotated[UserId, Depends(get_current_user_id)],
+    service: Annotated[CreditNoteService, Depends(get_credit_note_service)],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> CreditNoteResponse:
+    command = _to_issue_credit_note_command(body, idempotency_key)
+    credit_note = await service.issue_credit_note(tenant_id, invoice_id, command, user_id)
+    return CreditNoteResponse.from_entity(credit_note)
+
+
+@router.get(
+    "/invoices/{invoice_id}/credit-notes",
+    response_model=list[CreditNoteResponse],
+)
+async def list_invoice_credit_notes(
+    invoice_id: UUID,
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[CreditNoteService, Depends(get_credit_note_service)],
+) -> list[CreditNoteResponse]:
+    credit_notes = await service.list_invoice_credit_notes(tenant_id, invoice_id)
+    return [CreditNoteResponse.from_entity(cn) for cn in credit_notes]
+
+
+@router.get("/credit-notes", response_model=list[CreditNoteResponse])
+async def list_credit_notes(
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[CreditNoteService, Depends(get_credit_note_service)],
+    invoice_id: UUID | None = None,
+    customer_id: UUID | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> list[CreditNoteResponse]:
+    credit_notes = await service.list_credit_notes(
+        tenant_id,
+        invoice_id=invoice_id,
+        customer_id=customer_id,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return [CreditNoteResponse.from_entity(cn) for cn in credit_notes]
+
+
+@router.get("/credit-notes/{credit_note_id}", response_model=CreditNoteResponse)
+async def get_credit_note(
+    credit_note_id: UUID,
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[CreditNoteService, Depends(get_credit_note_service)],
+) -> CreditNoteResponse:
+    credit_note = await service.get_credit_note(tenant_id, credit_note_id)
+    return CreditNoteResponse.from_entity(credit_note)

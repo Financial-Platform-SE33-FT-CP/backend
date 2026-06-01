@@ -282,3 +282,94 @@ class PaymentModel(Base):  # type: ignore[misc, valid-type]
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
     invoice: Mapped["InvoiceModel"] = relationship("InvoiceModel", back_populates="payments")
+
+
+class CreditNoteModel(Base):  # type: ignore[misc, valid-type]
+    """SQLAlchemy model for the credit_notes table (US-10: issue credit notes).
+
+    A credit note is an immutable financial record linked to the issued invoice
+    it corrects. It always carries the id of its balanced reversal journal entry.
+    """
+
+    __tablename__ = "credit_notes"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "idempotency_key", name="uq_credit_notes_tenant_idempotency_key"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("tenants.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    invoice_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("invoices.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    customer_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("customers.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    credit_note_number: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    issue_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    reason: Mapped[str | None] = mapped_column(Text, nullable=True)
+    status: Mapped[str] = mapped_column(String(50), nullable=False, default="issued")
+    subtotal: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0.00")
+    )
+    gst_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0.00")
+    )
+    total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0.00"))
+    journal_entry_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("journal_entries.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+    lines: Mapped[list["CreditNoteLineModel"]] = relationship(
+        "CreditNoteLineModel",
+        back_populates="credit_note",
+        cascade="all, delete-orphan",
+    )
+
+
+class CreditNoteLineModel(Base):  # type: ignore[misc, valid-type]
+    __tablename__ = "credit_note_lines"
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    credit_note_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("credit_notes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
+    )
+    invoice_line_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("invoice_lines.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=1)
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    account_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("chart_of_accounts.id", ondelete="RESTRICT"),
+        nullable=False,
+    )
+    gst_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
+    line_total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    gst_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0.00")
+    )
+
+    credit_note: Mapped["CreditNoteModel"] = relationship("CreditNoteModel", back_populates="lines")
