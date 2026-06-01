@@ -16,18 +16,20 @@ from uuid import UUID, uuid4
 import pytest
 
 from ar_ap_service.config import ArApSettings
-from ar_ap_service.modules.ar_ap.application.services import InvoiceService
+from ar_ap_service.modules.ar_ap.application.services import InvoiceService, PaymentService
 from ar_ap_service.modules.ar_ap.domain.entities import (
     AccountInfo,
     Customer,
     Invoice,
     JournalLineInput,
+    Payment,
 )
 from ar_ap_service.modules.ar_ap.domain.repository import (
     AccountReader,
     CustomerRepository,
     InvoiceRepository,
     LedgerPoster,
+    PaymentRepository,
 )
 
 TENANT_A = UUID("00000000-0000-0000-0000-0000000000aa")
@@ -38,6 +40,7 @@ REVENUE_ACCOUNT_ID = UUID("44444444-4444-4444-4444-444444444444")
 REVENUE_ACCOUNT_2_ID = UUID("44444444-4444-4444-4444-444444444445")
 GST_ACCOUNT_ID = UUID("22222222-2222-2222-2222-222222222222")
 EXPENSE_ACCOUNT_ID = UUID("55555555-5555-5555-5555-555555555555")
+BANK_ACCOUNT_ID = UUID("33333333-3333-3333-3333-333333333333")
 
 
 class FakeInvoiceRepository(InvoiceRepository):
@@ -150,6 +153,7 @@ class FakeLedgerPoster(LedgerPoster):
         source_id: str,
         created_by: UUID | None,
         lines,
+        source_type: str = "invoice",
     ) -> str:
         if self.fail_with is not None:
             raise self.fail_with
@@ -171,6 +175,7 @@ class FakeLedgerPoster(LedgerPoster):
                 "entry_date": entry_date,
                 "reference": reference,
                 "source_id": source_id,
+                "source_type": source_type,
                 "created_by": created_by,
                 "lines": line_list,
                 "total_debit": total_debit,
@@ -217,6 +222,10 @@ def accounts() -> FakeAccountReader:
             tenant,
             AccountInfo(EXPENSE_ACCOUNT_ID, "6000", "Rent Expense", "expense", True),
         )
+        reader.seed(
+            tenant,
+            AccountInfo(BANK_ACCOUNT_ID, "1000", "Cash at Bank", "asset", True),
+        )
     return reader
 
 
@@ -260,3 +269,89 @@ def customer_a(customers: FakeCustomerRepository) -> Customer:
 @pytest.fixture
 def customer_b(customers: FakeCustomerRepository) -> Customer:
     return next(c for c in customers._store.values() if c.tenant_id == TENANT_B)
+
+
+class FakePaymentRepository(PaymentRepository):
+    def __init__(self) -> None:
+        self._store: dict[UUID, Payment] = {}
+
+    async def add(self, payment: Payment) -> Payment:
+        self._store[payment.id] = copy.deepcopy(payment)
+        return copy.deepcopy(payment)
+
+    async def get_by_id(self, tenant_id: UUID, payment_id: UUID) -> Payment | None:
+        payment = self._store.get(payment_id)
+        if payment is None or payment.tenant_id != tenant_id:
+            return None
+        return copy.deepcopy(payment)
+
+    async def list_by_invoice(self, tenant_id: UUID, invoice_id: UUID) -> list[Payment]:
+        return [
+            copy.deepcopy(p)
+            for p in sorted(self._store.values(), key=lambda p: p.created_at)
+            if p.tenant_id == tenant_id and p.invoice_id == invoice_id
+        ]
+
+    async def list_by_tenant(
+        self,
+        tenant_id: UUID,
+        *,
+        invoice_id: UUID | None = None,
+        customer_id: UUID | None = None,
+        payment_method: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> list[Payment]:
+        result = []
+        for p in sorted(self._store.values(), key=lambda p: p.created_at, reverse=True):
+            if p.tenant_id != tenant_id:
+                continue
+            if invoice_id is not None and p.invoice_id != invoice_id:
+                continue
+            if customer_id is not None and p.customer_id != customer_id:
+                continue
+            if payment_method is not None and p.payment_method.value != payment_method:
+                continue
+            if date_from is not None and (p.payment_date is None or p.payment_date < date_from):
+                continue
+            if date_to is not None and (p.payment_date is None or p.payment_date > date_to):
+                continue
+            result.append(copy.deepcopy(p))
+        return result
+
+    async def sum_paid_for_invoice(self, tenant_id: UUID, invoice_id: UUID) -> Decimal:
+        total = Decimal("0.00")
+        for p in self._store.values():
+            if p.tenant_id == tenant_id and p.invoice_id == invoice_id:
+                total += p.amount
+        return total
+
+    async def get_by_idempotency_key(self, tenant_id: UUID, key: str) -> Payment | None:
+        for p in self._store.values():
+            if p.tenant_id == tenant_id and p.idempotency_key == key:
+                return copy.deepcopy(p)
+        return None
+
+
+@pytest.fixture
+def payments() -> FakePaymentRepository:
+    return FakePaymentRepository()
+
+
+@pytest.fixture
+def payment_service(
+    payments: FakePaymentRepository,
+    invoices: FakeInvoiceRepository,
+    customers: FakeCustomerRepository,
+    accounts: FakeAccountReader,
+    ledger: FakeLedgerPoster,
+    settings: ArApSettings,
+) -> PaymentService:
+    return PaymentService(
+        payments=payments,
+        invoices=invoices,
+        customers=customers,
+        accounts=accounts,
+        ledger=ledger,
+        settings=settings,
+    )

@@ -25,17 +25,21 @@ from ar_ap_service.modules.ar_ap.domain.entities import (
     InvoiceLine,
     InvoiceStatus,
     JournalLineInput,
+    Payment,
+    PaymentMethod,
 )
 from ar_ap_service.modules.ar_ap.domain.repository import (
     AccountReader,
     CustomerRepository,
     InvoiceRepository,
     LedgerPoster,
+    PaymentRepository,
 )
 from ar_ap_service.modules.ar_ap.infrastructure.models import (
     CustomerModel,
     InvoiceLineModel,
     InvoiceModel,
+    PaymentModel,
 )
 
 _ZERO = Decimal("0.00")
@@ -317,6 +321,133 @@ class SqlAlchemyCustomerRepository(CustomerRepository):
         )
 
 
+def _parse_payment_method(raw: str | None) -> PaymentMethod:
+    try:
+        return PaymentMethod(raw) if raw is not None else PaymentMethod.OTHER
+    except ValueError:
+        return PaymentMethod.OTHER
+
+
+def _payment_to_entity(model: PaymentModel) -> Payment:
+    return Payment(
+        id=model.id,
+        tenant_id=model.tenant_id,
+        invoice_id=model.invoice_id,
+        customer_id=model.customer_id,
+        amount=model.amount if model.amount is not None else _ZERO,
+        payment_date=model.payment_date,
+        payment_method=_parse_payment_method(model.payment_method),
+        reference=model.reference,
+        deposit_account_id=model.deposit_account_id,
+        journal_entry_id=model.journal_entry_id,
+        idempotency_key=model.idempotency_key,
+        created_by=model.created_by,
+        created_at=model.created_at,
+    )
+
+
+class SqlAlchemyPaymentRepository(PaymentRepository):
+    """Payment persistence backed by the ``payments`` table (US-9).
+
+    Payments are immutable: this repository only supports inserts and reads.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, payment: Payment) -> Payment:
+        model = PaymentModel(
+            id=payment.id,
+            tenant_id=payment.tenant_id,
+            invoice_id=payment.invoice_id,
+            customer_id=payment.customer_id,
+            amount=payment.amount,
+            payment_date=payment.payment_date,
+            payment_method=payment.payment_method.value,
+            reference=payment.reference,
+            deposit_account_id=payment.deposit_account_id,
+            journal_entry_id=payment.journal_entry_id,
+            idempotency_key=payment.idempotency_key,
+            created_by=payment.created_by,
+            created_at=payment.created_at,
+        )
+        self._session.add(model)
+        await self._session.flush()
+        return _payment_to_entity(model)
+
+    async def get_by_id(self, tenant_id: uuid.UUID, payment_id: uuid.UUID) -> Payment | None:
+        stmt = select(PaymentModel).where(
+            PaymentModel.id == payment_id,
+            PaymentModel.tenant_id == tenant_id,
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return _payment_to_entity(model) if model is not None else None
+
+    async def list_by_invoice(
+        self, tenant_id: uuid.UUID, invoice_id: uuid.UUID
+    ) -> list[Payment]:
+        stmt = (
+            select(PaymentModel)
+            .where(
+                PaymentModel.tenant_id == tenant_id,
+                PaymentModel.invoice_id == invoice_id,
+            )
+            .order_by(PaymentModel.created_at.asc())
+        )
+        result = await self._session.execute(stmt)
+        return [_payment_to_entity(m) for m in result.scalars().all()]
+
+    async def list_by_tenant(
+        self,
+        tenant_id: uuid.UUID,
+        *,
+        invoice_id: uuid.UUID | None = None,
+        customer_id: uuid.UUID | None = None,
+        payment_method: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> list[Payment]:
+        stmt = (
+            select(PaymentModel)
+            .where(PaymentModel.tenant_id == tenant_id)
+            .order_by(PaymentModel.created_at.desc())
+        )
+        if invoice_id is not None:
+            stmt = stmt.where(PaymentModel.invoice_id == invoice_id)
+        if customer_id is not None:
+            stmt = stmt.where(PaymentModel.customer_id == customer_id)
+        if payment_method is not None:
+            stmt = stmt.where(PaymentModel.payment_method == payment_method)
+        if date_from is not None:
+            stmt = stmt.where(PaymentModel.payment_date >= date_from)
+        if date_to is not None:
+            stmt = stmt.where(PaymentModel.payment_date <= date_to)
+        result = await self._session.execute(stmt)
+        return [_payment_to_entity(m) for m in result.scalars().all()]
+
+    async def sum_paid_for_invoice(
+        self, tenant_id: uuid.UUID, invoice_id: uuid.UUID
+    ) -> Decimal:
+        stmt = select(func.coalesce(func.sum(PaymentModel.amount), 0)).where(
+            PaymentModel.tenant_id == tenant_id,
+            PaymentModel.invoice_id == invoice_id,
+        )
+        result = await self._session.execute(stmt)
+        return Decimal(str(result.scalar_one()))
+
+    async def get_by_idempotency_key(
+        self, tenant_id: uuid.UUID, key: str
+    ) -> Payment | None:
+        stmt = select(PaymentModel).where(
+            PaymentModel.tenant_id == tenant_id,
+            PaymentModel.idempotency_key == key,
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return _payment_to_entity(model) if model is not None else None
+
+
 class SqlAccountReader(AccountReader):
     """Reads the shared ``chart_of_accounts`` table without importing coa models."""
 
@@ -386,6 +517,7 @@ class SqlLedgerPoster(LedgerPoster):
         source_id: str,
         created_by: uuid.UUID | None,
         lines: Sequence[JournalLineInput],
+        source_type: str = "invoice",
     ) -> str:
         from accounting_shared.exceptions import ConflictError, ValidationError
 
@@ -419,7 +551,7 @@ class SqlLedgerPoster(LedgerPoster):
                 "entry_date": entry_date,
                 "reference": reference,
                 "description": description,
-                "source_type": "invoice",
+                "source_type": source_type,
                 "source_id": source_id,
                 "created_by": str(created_by) if created_by is not None else None,
                 "is_reversal": False,

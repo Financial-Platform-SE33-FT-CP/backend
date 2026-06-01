@@ -8,7 +8,12 @@ from uuid import UUID
 
 from pydantic import BaseModel, ConfigDict, Field
 
-from ar_ap_service.modules.ar_ap.domain.entities import Invoice
+from ar_ap_service.modules.ar_ap.domain.entities import (
+    Invoice,
+    InvoiceSettlement,
+    Payment,
+    PaymentMethod,
+)
 
 
 class InvoiceLineRequest(BaseModel):
@@ -114,3 +119,64 @@ class CustomerResponse(BaseModel):
     name: str
     email: str | None
     credit_terms_days: int | None
+
+
+class RecordPaymentRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    payment_date: date
+    amount: Decimal = Field(gt=0)
+    payment_method: PaymentMethod = PaymentMethod.BANK_TRANSFER
+    reference: str | None = Field(default=None, max_length=255)
+    deposit_account_id: UUID
+    idempotency_key: str | None = Field(default=None, max_length=255)
+
+
+class PaymentResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID | None
+    invoice_id: UUID
+    customer_id: UUID | None
+    amount: Decimal
+    payment_date: date | None
+    payment_method: str
+    reference: str | None
+    deposit_account_id: UUID | None
+    journal_entry_id: str | None
+    created_by: UUID | None
+    created_at: datetime
+
+    @classmethod
+    def from_entity(cls, payment: Payment) -> PaymentResponse:
+        return cls(
+            id=payment.id,
+            tenant_id=payment.tenant_id,
+            invoice_id=payment.invoice_id,
+            customer_id=payment.customer_id,
+            amount=payment.amount,
+            payment_date=payment.payment_date,
+            payment_method=payment.payment_method.value,
+            reference=payment.reference,
+            deposit_account_id=payment.deposit_account_id,
+            journal_entry_id=payment.journal_entry_id,
+            created_by=payment.created_by,
+            created_at=payment.created_at,
+        )
+
+
+class InvoiceSettlementResponse(BaseModel):
+    invoice_id: UUID
+    invoice_total: Decimal
+    amount_paid: Decimal
+    outstanding: Decimal
+
+    @classmethod
+    def from_entity(
+        cls, invoice_id: UUID, settlement: InvoiceSettlement
+    ) -> InvoiceSettlementResponse:
+        return cls(
+            invoice_id=invoice_id,
+            invoice_total=settlement.invoice_total,
+            amount_paid=settlement.amount_paid,
+            outstanding=settlement.outstanding,
+        )

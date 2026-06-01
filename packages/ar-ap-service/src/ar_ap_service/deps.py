@@ -23,11 +23,12 @@ from accounting_shared.http_internal import post_json
 from accounting_shared.middleware.tenant_context import get_current_tenant_id
 from accounting_shared.types import TenantId, UserId
 from ar_ap_service.config import ArApSettings
-from ar_ap_service.modules.ar_ap.application.services import InvoiceService
+from ar_ap_service.modules.ar_ap.application.services import InvoiceService, PaymentService
 from ar_ap_service.modules.ar_ap.infrastructure.repository import (
     SqlAccountReader,
     SqlAlchemyCustomerRepository,
     SqlAlchemyInvoiceRepository,
+    SqlAlchemyPaymentRepository,
     SqlLedgerPoster,
 )
 
@@ -159,6 +160,20 @@ async def get_invoice_service(
     settings: ArApSettings = Depends(get_settings),
 ) -> InvoiceService:
     return InvoiceService(
+        invoices=SqlAlchemyInvoiceRepository(session),
+        customers=SqlAlchemyCustomerRepository(session),
+        accounts=SqlAccountReader(session),
+        ledger=SqlLedgerPoster(session),
+        settings=settings,
+    )
+
+
+async def get_payment_service(
+    session: AsyncSession = Depends(get_async_session),
+    settings: ArApSettings = Depends(get_settings),
+) -> PaymentService:
+    return PaymentService(
+        payments=SqlAlchemyPaymentRepository(session),
         invoices=SqlAlchemyInvoiceRepository(session),
         customers=SqlAlchemyCustomerRepository(session),
         accounts=SqlAccountReader(session),
