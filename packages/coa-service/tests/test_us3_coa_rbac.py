@@ -7,12 +7,11 @@ from collections.abc import AsyncGenerator
 from datetime import UTC, datetime
 from unittest.mock import AsyncMock
 
-import httpx
 import pytest
 import pytest_asyncio
 from accounting_shared.exceptions import ForbiddenError, ServiceUnavailableError
 from accounting_shared.types import TenantId, UserId
-from httpx import ASGITransport, AsyncClient, Response
+from httpx import ASGITransport, AsyncClient
 from jose import jwt
 
 from coa_service.config import COASettings
@@ -128,20 +127,21 @@ async def test_list_accounts_forbidden_when_delegate_denies(
 
 @pytest.mark.asyncio
 async def test_authorize_not_member_via_tenant(monkeypatch: pytest.MonkeyPatch) -> None:
-    class FakeAC:
-        async def __aenter__(self) -> FakeAC:
-            return self
+    import coa_service.deps as deps
 
-        async def __aexit__(self, *_x: object, **_y: object) -> None:
-            return None
+    async def fake_post_json(
+        url: str,
+        *,
+        headers: dict[str, str],
+        body: dict[str, object],
+        **_kwargs: object,
+    ) -> tuple[int, dict[str, object]]:
+        assert url == "http://tenant.invalid/internal/authorization/check"
+        assert headers == {"X-Internal-Token": "tok"}
+        assert body["permission"] == "coa:read"
+        return 200, {"allowed": False, "reason": "not_member"}
 
-        async def post(self, *_a: object, **_k: object) -> Response:
-            return Response(
-                status_code=200,
-                json={"allowed": False, "reason": "not_member"},
-            )
-
-    monkeypatch.setattr(httpx, "AsyncClient", lambda **_k: FakeAC())
+    monkeypatch.setattr(deps, "post_json", fake_post_json)
 
     get_settings.cache_clear()
 
@@ -163,7 +163,6 @@ async def test_authorize_not_member_via_tenant(monkeypatch: pytest.MonkeyPatch) 
             tenant_id=TenantId(tid),
             permission="coa:read",
         )
-
 
 @pytest.mark.asyncio
 async def test_authorize_missing_internal_token_raises() -> None:
