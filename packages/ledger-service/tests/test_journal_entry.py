@@ -11,6 +11,10 @@ ACCOUNT_2_ID = "20000000-0000-0000-0000-000000000001"
 
 
 async def _seed_tenant(session_factory) -> None:
+    import uuid
+    from datetime import datetime
+
+    from coa_service.modules.coa.infrastructure.models import AccountModel, AccountType
     from sqlalchemy import text
 
     async with session_factory() as session:
@@ -18,14 +22,29 @@ async def _seed_tenant(session_factory) -> None:
             text("INSERT INTO tenants (id, name) VALUES (:id, :name)"),
             {"id": TENANT_ID_STR, "name": "Test Tenant"},
         )
-        await session.execute(
-            text("INSERT INTO chart_of_accounts (id, code, name) VALUES (:id, :code, :name)"),
-            {"id": ACCOUNT_1_ID, "code": "1000", "name": "Cash"},
-        )
-        await session.execute(
-            text("INSERT INTO chart_of_accounts (id, code, name) VALUES (:id, :code, :name)"),
-            {"id": ACCOUNT_2_ID, "code": "5000", "name": "Revenue"},
-        )
+        now = datetime.now()
+        session.add(AccountModel(
+            id=uuid.UUID(ACCOUNT_1_ID),
+            tenant_id=uuid.UUID(TENANT_ID_STR),
+            code="1000",
+            name="Cash",
+            account_type=AccountType.ASSET,
+            is_active=True,
+            is_system_default=False,
+            created_at=now,
+            updated_at=now,
+        ))
+        session.add(AccountModel(
+            id=uuid.UUID(ACCOUNT_2_ID),
+            tenant_id=uuid.UUID(TENANT_ID_STR),
+            code="5000",
+            name="Revenue",
+            account_type=AccountType.REVENUE,
+            is_active=True,
+            is_system_default=False,
+            created_at=now,
+            updated_at=now,
+        ))
         await session.commit()
 
 
