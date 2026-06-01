@@ -20,6 +20,9 @@ from sqlalchemy.orm import selectinload
 
 from ar_ap_service.modules.ar_ap.domain.entities import (
     AccountInfo,
+    CreditNote,
+    CreditNoteLine,
+    CreditNoteStatus,
     Customer,
     Invoice,
     InvoiceLine,
@@ -30,12 +33,15 @@ from ar_ap_service.modules.ar_ap.domain.entities import (
 )
 from ar_ap_service.modules.ar_ap.domain.repository import (
     AccountReader,
+    CreditNoteRepository,
     CustomerRepository,
     InvoiceRepository,
     LedgerPoster,
     PaymentRepository,
 )
 from ar_ap_service.modules.ar_ap.infrastructure.models import (
+    CreditNoteLineModel,
+    CreditNoteModel,
     CustomerModel,
     InvoiceLineModel,
     InvoiceModel,
@@ -442,6 +448,193 @@ class SqlAlchemyPaymentRepository(PaymentRepository):
         return _payment_to_entity(model) if model is not None else None
 
 
+def _parse_credit_note_status(raw: str) -> CreditNoteStatus:
+    try:
+        return CreditNoteStatus(raw)
+    except ValueError:
+        return CreditNoteStatus.ISSUED
+
+
+def _credit_note_to_entity(model: CreditNoteModel) -> CreditNote:
+    return CreditNote(
+        id=model.id,
+        tenant_id=model.tenant_id,
+        invoice_id=model.invoice_id,
+        customer_id=model.customer_id,
+        credit_note_number=model.credit_note_number or "",
+        issue_date=model.issue_date,
+        reason=model.reason,
+        status=_parse_credit_note_status(model.status),
+        subtotal=model.subtotal if model.subtotal is not None else _ZERO,
+        gst_amount=model.gst_amount if model.gst_amount is not None else _ZERO,
+        total=model.total if model.total is not None else _ZERO,
+        journal_entry_id=model.journal_entry_id,
+        idempotency_key=model.idempotency_key,
+        created_by=model.created_by,
+        created_at=model.created_at,
+        lines=[
+            CreditNoteLine(
+                id=line.id,
+                credit_note_id=line.credit_note_id,
+                invoice_line_id=line.invoice_line_id,
+                account_id=line.account_id,
+                quantity=line.quantity,
+                unit_price=line.unit_price,
+                description=line.description,
+                gst_rate=line.gst_rate if line.gst_rate is not None else _ZERO,
+                line_total=line.line_total if line.line_total is not None else _ZERO,
+                gst_amount=line.gst_amount if line.gst_amount is not None else _ZERO,
+            )
+            for line in sorted(model.lines, key=lambda line_model: str(line_model.id))
+        ],
+    )
+
+
+class SqlAlchemyCreditNoteRepository(CreditNoteRepository):
+    """Credit note persistence backed by the ``credit_notes``/``credit_note_lines`` tables (US-10).
+
+    Credit notes are immutable: this repository only supports inserts and reads.
+    """
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def add(self, credit_note: CreditNote) -> CreditNote:
+        model = CreditNoteModel(
+            id=credit_note.id,
+            tenant_id=credit_note.tenant_id,
+            invoice_id=credit_note.invoice_id,
+            customer_id=credit_note.customer_id,
+            credit_note_number=credit_note.credit_note_number or "",
+            issue_date=credit_note.issue_date,
+            reason=credit_note.reason,
+            status=credit_note.status.value,
+            subtotal=credit_note.subtotal,
+            gst_amount=credit_note.gst_amount,
+            total=credit_note.total,
+            journal_entry_id=credit_note.journal_entry_id,
+            idempotency_key=credit_note.idempotency_key,
+            created_by=credit_note.created_by,
+            created_at=credit_note.created_at,
+        )
+        model.lines = [
+            CreditNoteLineModel(
+                id=line.id,
+                credit_note_id=credit_note.id,
+                invoice_line_id=line.invoice_line_id,
+                account_id=line.account_id,
+                quantity=line.quantity,
+                unit_price=line.unit_price,
+                description=line.description,
+                gst_rate=line.gst_rate,
+                line_total=line.line_total,
+                gst_amount=line.gst_amount,
+            )
+            for line in credit_note.lines
+        ]
+        self._session.add(model)
+        await self._session.flush()
+        if credit_note.tenant_id is None:
+            msg = "Credit note is missing a tenant id."
+            raise ValueError(msg)
+        reloaded = await self.get_by_id(credit_note.tenant_id, credit_note.id)
+        if reloaded is None:
+            msg = "Credit note could not be reloaded after write."
+            raise RuntimeError(msg)
+        return reloaded
+
+    async def get_by_id(
+        self, tenant_id: uuid.UUID, credit_note_id: uuid.UUID
+    ) -> CreditNote | None:
+        stmt = (
+            select(CreditNoteModel)
+            .where(
+                CreditNoteModel.id == credit_note_id,
+                CreditNoteModel.tenant_id == tenant_id,
+            )
+            .options(selectinload(CreditNoteModel.lines))
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return _credit_note_to_entity(model) if model is not None else None
+
+    async def list_by_invoice(
+        self, tenant_id: uuid.UUID, invoice_id: uuid.UUID
+    ) -> list[CreditNote]:
+        stmt = (
+            select(CreditNoteModel)
+            .where(
+                CreditNoteModel.tenant_id == tenant_id,
+                CreditNoteModel.invoice_id == invoice_id,
+            )
+            .options(selectinload(CreditNoteModel.lines))
+            .order_by(CreditNoteModel.created_at.asc())
+        )
+        result = await self._session.execute(stmt)
+        return [_credit_note_to_entity(m) for m in result.scalars().unique().all()]
+
+    async def list_by_tenant(
+        self,
+        tenant_id: uuid.UUID,
+        *,
+        invoice_id: uuid.UUID | None = None,
+        customer_id: uuid.UUID | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> list[CreditNote]:
+        stmt = (
+            select(CreditNoteModel)
+            .where(CreditNoteModel.tenant_id == tenant_id)
+            .options(selectinload(CreditNoteModel.lines))
+            .order_by(CreditNoteModel.created_at.desc())
+        )
+        if invoice_id is not None:
+            stmt = stmt.where(CreditNoteModel.invoice_id == invoice_id)
+        if customer_id is not None:
+            stmt = stmt.where(CreditNoteModel.customer_id == customer_id)
+        if date_from is not None:
+            stmt = stmt.where(CreditNoteModel.issue_date >= date_from)
+        if date_to is not None:
+            stmt = stmt.where(CreditNoteModel.issue_date <= date_to)
+        result = await self._session.execute(stmt)
+        return [_credit_note_to_entity(m) for m in result.scalars().unique().all()]
+
+    async def sum_credited_for_invoice(
+        self, tenant_id: uuid.UUID, invoice_id: uuid.UUID
+    ) -> Decimal:
+        stmt = select(func.coalesce(func.sum(CreditNoteModel.total), 0)).where(
+            CreditNoteModel.tenant_id == tenant_id,
+            CreditNoteModel.invoice_id == invoice_id,
+        )
+        result = await self._session.execute(stmt)
+        return Decimal(str(result.scalar_one()))
+
+    async def count_with_number_prefix(self, tenant_id: uuid.UUID, prefix: str) -> int:
+        stmt = (
+            select(func.count())
+            .select_from(CreditNoteModel)
+            .where(
+                CreditNoteModel.tenant_id == tenant_id,
+                CreditNoteModel.credit_note_number.like(f"{prefix}%"),
+            )
+        )
+        result = await self._session.execute(stmt)
+        return int(result.scalar_one())
+
+    async def get_by_idempotency_key(self, tenant_id: uuid.UUID, key: str) -> CreditNote | None:
+        stmt = (
+            select(CreditNoteModel)
+            .where(
+                CreditNoteModel.tenant_id == tenant_id,
+                CreditNoteModel.idempotency_key == key,
+            )
+            .options(selectinload(CreditNoteModel.lines))
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return _credit_note_to_entity(model) if model is not None else None
+
+
 class SqlAccountReader(AccountReader):
     """Reads the shared ``chart_of_accounts`` table without importing coa models."""
 
@@ -512,6 +705,8 @@ class SqlLedgerPoster(LedgerPoster):
         created_by: uuid.UUID | None,
         lines: Sequence[JournalLineInput],
         source_type: str = "invoice",
+        is_reversal: bool = False,
+        reversed_entry_id: str | None = None,
     ) -> str:
         from accounting_shared.exceptions import ConflictError, ValidationError
 
@@ -548,8 +743,8 @@ class SqlLedgerPoster(LedgerPoster):
                 "source_type": source_type,
                 "source_id": source_id,
                 "created_by": str(created_by) if created_by is not None else None,
-                "is_reversal": False,
-                "reversed_entry_id": None,
+                "is_reversal": is_reversal,
+                "reversed_entry_id": reversed_entry_id,
                 "created_at": datetime.utcnow(),
             },
         )

@@ -14,12 +14,17 @@ from accounting_shared.exceptions import (
 from ar_ap_service.config import ArApSettings
 from ar_ap_service.modules.ar_ap.application.dto import (
     CreateInvoiceCommand,
+    CreditNoteLineInput,
     InvoiceLineInput,
+    IssueCreditNoteCommand,
     RecordPaymentCommand,
     UpdateInvoiceCommand,
 )
 from ar_ap_service.modules.ar_ap.domain.entities import (
     AccountInfo,
+    CreditNote,
+    CreditNoteLine,
+    CreditNoteStatus,
     Customer,
     Invoice,
     InvoiceLine,
@@ -30,6 +35,7 @@ from ar_ap_service.modules.ar_ap.domain.entities import (
 )
 from ar_ap_service.modules.ar_ap.domain.repository import (
     AccountReader,
+    CreditNoteRepository,
     CustomerRepository,
     InvoiceRepository,
     LedgerPoster,
@@ -42,6 +48,11 @@ _ASSET_TYPE = "asset"
 #: Invoice statuses against which a customer payment may be recorded (US-9).
 _PAYABLE_STATUSES: frozenset[InvoiceStatus] = frozenset(
     {InvoiceStatus.ISSUED, InvoiceStatus.PARTIAL, InvoiceStatus.OVERDUE}
+)
+#: Invoice statuses against which a credit note may be issued (US-10).
+#: Drafts are excluded: an unissued invoice has no ledger impact to reverse.
+_CREDITABLE_STATUSES: frozenset[InvoiceStatus] = frozenset(
+    {InvoiceStatus.ISSUED, InvoiceStatus.PARTIAL, InvoiceStatus.PAID, InvoiceStatus.OVERDUE}
 )
 
 
@@ -600,3 +611,318 @@ class PaymentService:
         if payment_reference:
             return f"PAY {invoice_ref} / {payment_reference}"
         return f"PAY {invoice_ref}"
+
+
+class CreditNoteService:
+    """Issues credit notes against issued invoices (US-10).
+
+    A credit note corrects, reduces or reverses an already-issued invoice without
+    ever editing the original invoice or its journal entry. Issuing is a single
+    atomic operation: validate the invoice and revenue accounts, compute the
+    creditable amount, post a balanced reversal journal entry (Debit Revenue,
+    Debit GST Output, Credit Accounts Receivable) and persist the credit note
+    with its ``journal_entry_id``. Everything runs on the caller's transaction, so
+    if journal posting fails the credit note is never saved (requirement 12).
+
+    The original invoice's status is intentionally left unchanged: credit-note
+    history is exposed separately so US-8/US-9 status workflows keep working.
+    """
+
+    def __init__(
+        self,
+        *,
+        credit_notes: CreditNoteRepository,
+        invoices: InvoiceRepository,
+        customers: CustomerRepository,
+        accounts: AccountReader,
+        ledger: LedgerPoster,
+        settings: ArApSettings,
+    ) -> None:
+        self._credit_notes = credit_notes
+        self._invoices = invoices
+        self._customers = customers
+        self._accounts = accounts
+        self._ledger = ledger
+        self._settings = settings
+
+    # ── reads ──────────────────────────────────────────────────────────────────
+
+    async def get_credit_note(self, tenant_id: UUID, credit_note_id: UUID) -> CreditNote:
+        credit_note = await self._credit_notes.get_by_id(tenant_id, credit_note_id)
+        if credit_note is None:
+            raise NotFoundError("Credit note not found.")
+        return credit_note
+
+    async def list_invoice_credit_notes(
+        self, tenant_id: UUID, invoice_id: UUID
+    ) -> list[CreditNote]:
+        # Enforce tenant ownership of the invoice before exposing its credit notes.
+        await self._require_invoice(tenant_id, invoice_id)
+        return await self._credit_notes.list_by_invoice(tenant_id, invoice_id)
+
+    async def list_credit_notes(
+        self,
+        tenant_id: UUID,
+        *,
+        invoice_id: UUID | None = None,
+        customer_id: UUID | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> list[CreditNote]:
+        return await self._credit_notes.list_by_tenant(
+            tenant_id,
+            invoice_id=invoice_id,
+            customer_id=customer_id,
+            date_from=date_from,
+            date_to=date_to,
+        )
+
+    # ── issue credit note ──────────────────────────────────────────────────────
+
+    async def issue_credit_note(
+        self,
+        tenant_id: UUID,
+        invoice_id: UUID,
+        command: IssueCreditNoteCommand,
+        issued_by: UUID | None,
+    ) -> CreditNote:
+        """Issue a credit note and post its balanced reversal journal entry atomically.
+
+        Steps (all within the caller's transaction): idempotency check →
+        tenant/invoice check → status check → build & validate lines (revenue
+        accounts, tenant-scoped) → compute totals → creditable-amount check →
+        closed-period check → generate number → post reversal journal entry →
+        persist. If posting fails the exception propagates and the surrounding
+        transaction rolls back, so no credit note is saved.
+        """
+        # Idempotency: a retry carrying a previously seen key returns the original
+        # credit note instead of double-posting.
+        if command.idempotency_key:
+            existing = await self._credit_notes.get_by_idempotency_key(
+                tenant_id, command.idempotency_key
+            )
+            if existing is not None:
+                return existing
+
+        invoice = await self._require_invoice(tenant_id, invoice_id)
+
+        if invoice.status == InvoiceStatus.DRAFT:
+            raise ConflictError(
+                "Cannot issue a credit note for a draft invoice; issue the invoice first."
+            )
+        if invoice.status not in _CREDITABLE_STATUSES:
+            raise ConflictError(
+                f"Cannot issue a credit note for an invoice with status {invoice.status.value!r}."
+            )
+
+        lines, revenue_accounts = await self._build_lines(tenant_id, command.lines)
+
+        credit_note = CreditNote(
+            tenant_id=tenant_id,
+            invoice_id=invoice.id,
+            customer_id=invoice.customer_id,
+            issue_date=command.issue_date,
+            reason=command.reason,
+            status=CreditNoteStatus.ISSUED,
+            idempotency_key=command.idempotency_key,
+            created_by=issued_by,
+            created_at=datetime.utcnow(),
+            lines=lines,
+        )
+        credit_note.recalculate_totals()
+
+        if credit_note.total <= _ZERO:
+            raise ValidationError("Credit note total must be greater than zero.")
+
+        # Requirement 5/9: a credit note may not exceed the invoice value minus
+        # what has already been credited against it.
+        already_credited = await self._credit_notes.sum_credited_for_invoice(
+            tenant_id, invoice.id
+        )
+        creditable = invoice.total - already_credited
+        if credit_note.total > creditable:
+            raise ValidationError(
+                f"Credit note total {credit_note.total} exceeds the remaining creditable "
+                f"amount {creditable} for invoice {invoice.invoice_number or invoice.id}."
+            )
+
+        ar_account = await self._require_account_by_code(
+            tenant_id, self._settings.ar_control_account_code, "Accounts Receivable"
+        )
+        gst_account: AccountInfo | None = None
+        if credit_note.gst_amount > _ZERO:
+            gst_account = await self._require_account_by_code(
+                tenant_id, self._settings.gst_output_account_code, "GST Output Tax"
+            )
+
+        if await self._ledger.is_period_closed(tenant_id, command.issue_date):
+            raise ConflictError(
+                f"Cannot issue credit note: {command.issue_date} is in a closed "
+                "accounting period."
+            )
+
+        credit_note.credit_note_number = await self._generate_credit_note_number(
+            tenant_id, command.issue_date
+        )
+
+        journal_lines = self._build_journal_lines(
+            credit_note, ar_account, revenue_accounts, gst_account
+        )
+        reference = self._build_journal_reference(credit_note, invoice)
+
+        journal_entry_id = await self._ledger.post_journal_entry(
+            tenant_id=tenant_id,
+            entry_date=command.issue_date,
+            reference=reference,
+            description=(
+                f"Credit note {credit_note.credit_note_number} for invoice "
+                f"{invoice.invoice_number or invoice.id}"
+            ),
+            source_id=str(credit_note.id),
+            source_type="credit_note",
+            created_by=issued_by,
+            lines=journal_lines,
+            is_reversal=True,
+            reversed_entry_id=invoice.journal_entry_id,
+        )
+        credit_note.journal_entry_id = journal_entry_id
+
+        return await self._credit_notes.add(credit_note)
+
+    # ── helpers ──────────────────────────────────────────────────────────────
+
+    async def _require_invoice(self, tenant_id: UUID, invoice_id: UUID) -> Invoice:
+        invoice = await self._invoices.get_by_id(tenant_id, invoice_id)
+        if invoice is None:
+            raise NotFoundError("Invoice not found.")
+        return invoice
+
+    async def _build_lines(
+        self,
+        tenant_id: UUID,
+        line_inputs: list[CreditNoteLineInput],
+    ) -> tuple[list[CreditNoteLine], dict[UUID, AccountInfo]]:
+        if not line_inputs:
+            raise ValidationError("A credit note must have at least one line.")
+        lines: list[CreditNoteLine] = []
+        revenue_accounts: dict[UUID, AccountInfo] = {}
+        for raw in line_inputs:
+            if raw.quantity <= 0:
+                raise ValidationError("Line quantity must be greater than zero.")
+            if raw.unit_price < 0:
+                raise ValidationError("Line unit_price must not be negative.")
+            if raw.gst_rate < 0:
+                raise ValidationError("Line gst_rate must not be negative.")
+            account = revenue_accounts.get(raw.account_id)
+            if account is None:
+                account = await self._accounts.get_by_id(tenant_id, raw.account_id)
+                if account is None:
+                    raise ValidationError(
+                        f"Account {raw.account_id} not found for this tenant."
+                    )
+                if not account.is_active:
+                    raise ValidationError(f"Account {account.code} is not active.")
+                if account.account_type != _REVENUE_TYPE:
+                    raise ValidationError(
+                        f"Account {account.code} is not a revenue account; "
+                        "credit note lines must post to revenue accounts."
+                    )
+                revenue_accounts[raw.account_id] = account
+            line = CreditNoteLine(
+                account_id=raw.account_id,
+                quantity=raw.quantity,
+                unit_price=raw.unit_price,
+                description=raw.description,
+                gst_rate=raw.gst_rate,
+                invoice_line_id=raw.invoice_line_id,
+            )
+            line.recalculate()
+            lines.append(line)
+        return lines, revenue_accounts
+
+    async def _require_account_by_code(
+        self,
+        tenant_id: UUID,
+        code: str,
+        label: str,
+    ) -> AccountInfo:
+        account = await self._accounts.get_by_code(tenant_id, code)
+        if account is None:
+            raise ValidationError(
+                f"{label} account (code {code}) is not configured for this tenant."
+            )
+        return account
+
+    def _build_journal_lines(
+        self,
+        credit_note: CreditNote,
+        ar_account: AccountInfo,
+        revenue_accounts: dict[UUID, AccountInfo],
+        gst_account: AccountInfo | None,
+    ) -> list[JournalLineInput]:
+        """Build a balanced reversal of the invoice's revenue/GST/AR impact.
+
+        Debit each revenue account for its net amount; debit GST Output Tax for
+        the total GST; credit Accounts Receivable for the gross total. This is the
+        exact mirror of the invoice posting from US-8.
+        """
+        lines: list[JournalLineInput] = []
+
+        revenue_totals: dict[UUID, Decimal] = {}
+        for line in credit_note.lines:
+            revenue_totals[line.account_id] = (
+                revenue_totals.get(line.account_id, _ZERO) + line.line_total
+            )
+        for account_id, net in revenue_totals.items():
+            if net <= _ZERO:
+                continue
+            account = revenue_accounts[account_id]
+            lines.append(
+                JournalLineInput(
+                    account_id=str(account.id),
+                    debit_amount=net,
+                    credit_amount=_ZERO,
+                    description=f"Revenue reversal — {account.name}",
+                )
+            )
+
+        if credit_note.gst_amount > _ZERO:
+            if gst_account is None:
+                raise ValidationError("GST Output Tax account is required when GST applies.")
+            lines.append(
+                JournalLineInput(
+                    account_id=str(gst_account.id),
+                    debit_amount=credit_note.gst_amount,
+                    credit_amount=_ZERO,
+                    description="GST output tax reversal",
+                )
+            )
+
+        lines.append(
+            JournalLineInput(
+                account_id=str(ar_account.id),
+                debit_amount=_ZERO,
+                credit_amount=credit_note.total,
+                description=(
+                    f"Accounts receivable — credit note {credit_note.credit_note_number}"
+                ),
+            )
+        )
+
+        total_debit = sum((line.debit_amount for line in lines), _ZERO)
+        total_credit = sum((line.credit_amount for line in lines), _ZERO)
+        if total_debit != total_credit:
+            raise ValidationError(
+                f"Journal entry is not balanced: debit {total_debit}, credit {total_credit}."
+            )
+        return lines
+
+    async def _generate_credit_note_number(self, tenant_id: UUID, issue_date: date) -> str:
+        prefix = f"CN-{issue_date.year}-"
+        existing = await self._credit_notes.count_with_number_prefix(tenant_id, prefix)
+        return f"{prefix}{existing + 1:04d}"
+
+    @staticmethod
+    def _build_journal_reference(credit_note: CreditNote, invoice: Invoice) -> str:
+        invoice_ref = invoice.invoice_number or str(invoice.id)
+        return f"{credit_note.credit_note_number} / {invoice_ref}"

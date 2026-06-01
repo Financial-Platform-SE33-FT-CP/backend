@@ -10,6 +10,7 @@ from uuid import UUID
 
 from ar_ap_service.modules.ar_ap.domain.entities import (
     AccountInfo,
+    CreditNote,
     Customer,
     Invoice,
     JournalLineInput,
@@ -107,6 +108,50 @@ class PaymentRepository(ABC):
         """Return an existing payment for an idempotency key, if any."""
 
 
+class CreditNoteRepository(ABC):
+    """Persistence port for credit notes and their lines (always tenant-scoped, US-10).
+
+    Credit notes are immutable financial records: this port intentionally exposes
+    no update or delete method (no hard deletes of posted financial records).
+    """
+
+    @abstractmethod
+    async def add(self, credit_note: CreditNote) -> CreditNote:
+        """Persist a new posted credit note and its lines."""
+
+    @abstractmethod
+    async def get_by_id(self, tenant_id: UUID, credit_note_id: UUID) -> CreditNote | None:
+        """Return a credit note with its lines, or ``None`` if not in this tenant."""
+
+    @abstractmethod
+    async def list_by_invoice(self, tenant_id: UUID, invoice_id: UUID) -> list[CreditNote]:
+        """List a tenant's credit notes for one invoice, oldest first."""
+
+    @abstractmethod
+    async def list_by_tenant(
+        self,
+        tenant_id: UUID,
+        *,
+        invoice_id: UUID | None = None,
+        customer_id: UUID | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> list[CreditNote]:
+        """List a tenant's credit notes, newest first, with optional filters."""
+
+    @abstractmethod
+    async def sum_credited_for_invoice(self, tenant_id: UUID, invoice_id: UUID) -> Decimal:
+        """Return the total amount already credited against an invoice."""
+
+    @abstractmethod
+    async def count_with_number_prefix(self, tenant_id: UUID, prefix: str) -> int:
+        """Count credit notes whose number starts with *prefix* (for numbering)."""
+
+    @abstractmethod
+    async def get_by_idempotency_key(self, tenant_id: UUID, key: str) -> CreditNote | None:
+        """Return an existing credit note for an idempotency key, if any."""
+
+
 class AccountReader(ABC):
     """Read-only gateway into the Chart of Accounts (owned by coa-service)."""
 
@@ -140,9 +185,14 @@ class LedgerPoster(ABC):
         created_by: UUID | None,
         lines: Sequence[JournalLineInput],
         source_type: str = "invoice",
+        is_reversal: bool = False,
+        reversed_entry_id: str | None = None,
     ) -> str:
         """Persist a balanced journal entry and return its id.
 
         ``source_type`` ties the entry back to its originating document
-        ("invoice", "payment", ...) so the ledger can be traced per source.
+        ("invoice", "payment", "credit_note", ...) so the ledger can be traced
+        per source. ``is_reversal``/``reversed_entry_id`` mark an entry that
+        reverses or adjusts another (e.g. a credit note against an invoice's
+        journal entry) without ever mutating the original.
         """

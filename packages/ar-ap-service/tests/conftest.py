@@ -16,9 +16,14 @@ from uuid import UUID, uuid4
 import pytest
 
 from ar_ap_service.config import ArApSettings
-from ar_ap_service.modules.ar_ap.application.services import InvoiceService, PaymentService
+from ar_ap_service.modules.ar_ap.application.services import (
+    CreditNoteService,
+    InvoiceService,
+    PaymentService,
+)
 from ar_ap_service.modules.ar_ap.domain.entities import (
     AccountInfo,
+    CreditNote,
     Customer,
     Invoice,
     JournalLineInput,
@@ -26,6 +31,7 @@ from ar_ap_service.modules.ar_ap.domain.entities import (
 )
 from ar_ap_service.modules.ar_ap.domain.repository import (
     AccountReader,
+    CreditNoteRepository,
     CustomerRepository,
     InvoiceRepository,
     LedgerPoster,
@@ -154,6 +160,8 @@ class FakeLedgerPoster(LedgerPoster):
         created_by: UUID | None,
         lines,
         source_type: str = "invoice",
+        is_reversal: bool = False,
+        reversed_entry_id: str | None = None,
     ) -> str:
         if self.fail_with is not None:
             raise self.fail_with
@@ -180,6 +188,8 @@ class FakeLedgerPoster(LedgerPoster):
                 "lines": line_list,
                 "total_debit": total_debit,
                 "total_credit": total_credit,
+                "is_reversal": is_reversal,
+                "reversed_entry_id": reversed_entry_id,
             }
         )
         return entry_id
@@ -349,6 +359,96 @@ def payment_service(
 ) -> PaymentService:
     return PaymentService(
         payments=payments,
+        invoices=invoices,
+        customers=customers,
+        accounts=accounts,
+        ledger=ledger,
+        settings=settings,
+    )
+
+
+class FakeCreditNoteRepository(CreditNoteRepository):
+    def __init__(self) -> None:
+        self._store: dict[UUID, CreditNote] = {}
+
+    async def add(self, credit_note: CreditNote) -> CreditNote:
+        self._store[credit_note.id] = copy.deepcopy(credit_note)
+        return copy.deepcopy(credit_note)
+
+    async def get_by_id(self, tenant_id: UUID, credit_note_id: UUID) -> CreditNote | None:
+        credit_note = self._store.get(credit_note_id)
+        if credit_note is None or credit_note.tenant_id != tenant_id:
+            return None
+        return copy.deepcopy(credit_note)
+
+    async def list_by_invoice(self, tenant_id: UUID, invoice_id: UUID) -> list[CreditNote]:
+        return [
+            copy.deepcopy(cn)
+            for cn in sorted(self._store.values(), key=lambda cn: cn.created_at)
+            if cn.tenant_id == tenant_id and cn.invoice_id == invoice_id
+        ]
+
+    async def list_by_tenant(
+        self,
+        tenant_id: UUID,
+        *,
+        invoice_id: UUID | None = None,
+        customer_id: UUID | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> list[CreditNote]:
+        result = []
+        for cn in sorted(self._store.values(), key=lambda cn: cn.created_at, reverse=True):
+            if cn.tenant_id != tenant_id:
+                continue
+            if invoice_id is not None and cn.invoice_id != invoice_id:
+                continue
+            if customer_id is not None and cn.customer_id != customer_id:
+                continue
+            if date_from is not None and (cn.issue_date is None or cn.issue_date < date_from):
+                continue
+            if date_to is not None and (cn.issue_date is None or cn.issue_date > date_to):
+                continue
+            result.append(copy.deepcopy(cn))
+        return result
+
+    async def sum_credited_for_invoice(self, tenant_id: UUID, invoice_id: UUID) -> Decimal:
+        total = Decimal("0.00")
+        for cn in self._store.values():
+            if cn.tenant_id == tenant_id and cn.invoice_id == invoice_id:
+                total += cn.total
+        return total
+
+    async def count_with_number_prefix(self, tenant_id: UUID, prefix: str) -> int:
+        return sum(
+            1
+            for cn in self._store.values()
+            if cn.tenant_id == tenant_id and cn.credit_note_number.startswith(prefix)
+        )
+
+    async def get_by_idempotency_key(self, tenant_id: UUID, key: str) -> CreditNote | None:
+        for cn in self._store.values():
+            if cn.tenant_id == tenant_id and cn.idempotency_key == key:
+                return copy.deepcopy(cn)
+        return None
+
+
+@pytest.fixture
+def credit_notes() -> FakeCreditNoteRepository:
+    return FakeCreditNoteRepository()
+
+
+@pytest.fixture
+def credit_note_service(
+    credit_notes: FakeCreditNoteRepository,
+    invoices: FakeInvoiceRepository,
+    customers: FakeCustomerRepository,
+    accounts: FakeAccountReader,
+    ledger: FakeLedgerPoster,
+    settings: ArApSettings,
+) -> CreditNoteService:
+    return CreditNoteService(
+        credit_notes=credit_notes,
         invoices=invoices,
         customers=customers,
         accounts=accounts,

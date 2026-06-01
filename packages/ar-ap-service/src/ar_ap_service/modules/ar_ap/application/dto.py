@@ -65,3 +65,37 @@ class RecordPaymentCommand(BaseModel):
     reference: str | None = Field(default=None, max_length=255)
     deposit_account_id: UUID
     idempotency_key: str | None = Field(default=None, max_length=255)
+
+
+class CreditNoteLineInput(BaseModel):
+    """A single credit note line supplied by the client (US-10).
+
+    ``line_total`` and ``gst_amount`` are intentionally absent: the backend
+    computes them from quantity, unit price and GST rate so frontend totals are
+    never trusted.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: UUID
+    quantity: Decimal = Field(gt=0)
+    unit_price: Decimal = Field(ge=0)
+    description: str | None = None
+    gst_rate: Decimal = Field(default=Decimal("0"), ge=0)
+    invoice_line_id: UUID | None = None
+
+
+class IssueCreditNoteCommand(BaseModel):
+    """Payload for issuing a credit note against an issued invoice (US-10).
+
+    ``tenant_id`` and ``customer_id`` are intentionally absent: tenant comes from
+    the authenticated context and the customer is derived from the invoice. The
+    backend computes subtotal, GST and total; the client never supplies them.
+    """
+
+    model_config = ConfigDict(extra="forbid")
+
+    issue_date: date
+    reason: str | None = Field(default=None, max_length=500)
+    lines: list[CreditNoteLineInput] = Field(min_length=1)
+    idempotency_key: str | None = Field(default=None, max_length=255)
