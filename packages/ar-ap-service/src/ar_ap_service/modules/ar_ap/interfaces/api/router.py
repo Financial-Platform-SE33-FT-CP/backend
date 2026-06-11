@@ -19,6 +19,8 @@ from accounting_shared.rbac import (
 from accounting_shared.types import TenantId, UserId
 from ar_ap_service.deps import (
     RequireArApPermission,
+    get_bill_payment_service,
+    get_bill_service,
     get_credit_note_service,
     get_current_user_id,
     get_invoice_service,
@@ -26,30 +28,45 @@ from ar_ap_service.deps import (
     require_tenant_id,
 )
 from ar_ap_service.modules.ar_ap.application.dto import (
+    BillLineInput,
+    CreateBillCommand,
     CreateInvoiceCommand,
     CreditNoteLineInput,
     InvoiceLineInput,
     IssueCreditNoteCommand,
+    PayBillCommand,
     RecordPaymentCommand,
+    UpdateBillCommand,
     UpdateInvoiceCommand,
 )
 from ar_ap_service.modules.ar_ap.application.services import (
+    BillPaymentService,
+    BillService,
     CreditNoteService,
     InvoiceService,
     PaymentService,
 )
-from ar_ap_service.modules.ar_ap.domain.entities import Customer
+from ar_ap_service.modules.ar_ap.domain.entities import Customer, Vendor
 from ar_ap_service.modules.ar_ap.interfaces.api.schemas import (
+    APAgingLineResponse,
+    BillPaymentResponse,
+    BillResponse,
+    BillSettlementResponse,
+    CreateBillRequest,
     CreateCustomerRequest,
     CreateInvoiceRequest,
+    CreateVendorRequest,
     CreditNoteResponse,
     CustomerResponse,
     InvoiceResponse,
     InvoiceSettlementResponse,
     IssueCreditNoteRequest,
+    PayBillRequest,
     PaymentResponse,
     RecordPaymentRequest,
+    UpdateBillRequest,
     UpdateInvoiceRequest,
+    VendorResponse,
 )
 
 router = APIRouter(tags=["ar-ap"])
@@ -417,3 +434,253 @@ async def get_credit_note(
 ) -> CreditNoteResponse:
     credit_note = await service.get_credit_note(tenant_id, credit_note_id)
     return CreditNoteResponse.from_entity(credit_note)
+
+
+# ── bills (US-11 / US-12) ────────────────────────────────────────────────────
+
+
+def _to_create_bill_command(body: CreateBillRequest) -> CreateBillCommand:
+    return CreateBillCommand(
+        vendor_id=body.vendor_id,
+        issue_date=body.issue_date,
+        due_date=body.due_date,
+        lines=[
+            BillLineInput(
+                account_id=line.account_id,
+                quantity=line.quantity,
+                unit_price=line.unit_price,
+                description=line.description,
+                gst_rate=line.gst_rate,
+            )
+            for line in body.lines
+        ],
+    )
+
+
+def _to_update_bill_command(body: UpdateBillRequest) -> UpdateBillCommand:
+    lines = None
+    if body.lines is not None:
+        lines = [
+            BillLineInput(
+                account_id=line.account_id,
+                quantity=line.quantity,
+                unit_price=line.unit_price,
+                description=line.description,
+                gst_rate=line.gst_rate,
+            )
+            for line in body.lines
+        ]
+    return UpdateBillCommand(
+        vendor_id=body.vendor_id,
+        issue_date=body.issue_date,
+        due_date=body.due_date,
+        lines=lines,
+    )
+
+
+@router.post(
+    "/bills",
+    response_model=BillResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_bill(
+    body: CreateBillRequest,
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_CREATE))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    user_id: Annotated[UserId, Depends(get_current_user_id)],
+    service: Annotated[BillService, Depends(get_bill_service)],
+) -> BillResponse:
+    bill = await service.create_draft(tenant_id, _to_create_bill_command(body), user_id)
+    return BillResponse.from_entity(bill)
+
+
+@router.get("/bills", response_model=list[BillResponse])
+async def list_bills(
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[BillService, Depends(get_bill_service)],
+    bill_status: Annotated[str | None, Query(alias="status")] = None,
+    vendor_id: UUID | None = None,
+    issued_from: date | None = None,
+    issued_to: date | None = None,
+) -> list[BillResponse]:
+    bills = await service.list_bills(
+        tenant_id,
+        status=bill_status,
+        vendor_id=vendor_id,
+        issued_from=issued_from,
+        issued_to=issued_to,
+    )
+    return [BillResponse.from_entity(b) for b in bills]
+
+
+@router.get("/bills/ap-aging", response_model=list[APAgingLineResponse])
+async def get_ap_aging(
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[BillPaymentService, Depends(get_bill_payment_service)],
+    as_of: date | None = None,
+) -> list[APAgingLineResponse]:
+    lines = await service.get_ap_aging(tenant_id, as_of=as_of)
+    return [APAgingLineResponse.from_entity(line) for line in lines]
+
+
+@router.get("/bills/{bill_id}", response_model=BillResponse)
+async def get_bill(
+    bill_id: UUID,
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[BillService, Depends(get_bill_service)],
+) -> BillResponse:
+    bill = await service.get_bill(tenant_id, bill_id)
+    return BillResponse.from_entity(bill)
+
+
+@router.put("/bills/{bill_id}", response_model=BillResponse)
+async def update_bill(
+    bill_id: UUID,
+    body: UpdateBillRequest,
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_UPDATE))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[BillService, Depends(get_bill_service)],
+) -> BillResponse:
+    bill = await service.update_draft(tenant_id, bill_id, _to_update_bill_command(body))
+    return BillResponse.from_entity(bill)
+
+
+@router.post("/bills/{bill_id}/record", response_model=BillResponse)
+async def record_bill(
+    bill_id: UUID,
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_POST))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    user_id: Annotated[UserId, Depends(get_current_user_id)],
+    service: Annotated[BillService, Depends(get_bill_service)],
+) -> BillResponse:
+    bill = await service.record_bill(tenant_id, bill_id, user_id)
+    return BillResponse.from_entity(bill)
+
+
+@router.delete("/bills/{bill_id}", status_code=status.HTTP_204_NO_CONTENT)
+async def delete_bill(
+    bill_id: UUID,
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_DELETE))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[BillService, Depends(get_bill_service)],
+) -> None:
+    await service.delete_draft(tenant_id, bill_id)
+
+
+@router.post(
+    "/vendors",
+    response_model=VendorResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def create_vendor(
+    body: CreateVendorRequest,
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_CREATE))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[BillService, Depends(get_bill_service)],
+) -> VendorResponse:
+    vendor = await service.create_vendor(
+        Vendor(tenant_id=tenant_id, name=body.name, email=body.email)
+    )
+    return VendorResponse(
+        id=vendor.id,
+        tenant_id=vendor.tenant_id,
+        name=vendor.name,
+        email=vendor.email,
+    )
+
+
+@router.get("/vendors", response_model=list[VendorResponse])
+async def list_vendors(
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[BillService, Depends(get_bill_service)],
+) -> list[VendorResponse]:
+    vendors = await service.list_vendors(tenant_id)
+    return [
+        VendorResponse(id=v.id, tenant_id=v.tenant_id, name=v.name, email=v.email)
+        for v in vendors
+    ]
+
+
+@router.post(
+    "/bills/{bill_id}/payments",
+    response_model=BillPaymentResponse,
+    status_code=status.HTTP_201_CREATED,
+)
+async def pay_bill(
+    bill_id: UUID,
+    body: PayBillRequest,
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_POST))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    user_id: Annotated[UserId, Depends(get_current_user_id)],
+    service: Annotated[BillPaymentService, Depends(get_bill_payment_service)],
+    idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
+) -> BillPaymentResponse:
+    command = PayBillCommand(
+        payment_date=body.payment_date,
+        amount=body.amount,
+        payment_method=body.payment_method,
+        reference=body.reference,
+        payment_account_id=body.payment_account_id,
+        idempotency_key=body.idempotency_key or idempotency_key,
+    )
+    payment = await service.pay_bill(tenant_id, bill_id, command, user_id)
+    return BillPaymentResponse.from_entity(payment)
+
+
+@router.get("/bills/{bill_id}/payments", response_model=list[BillPaymentResponse])
+async def list_bill_payments(
+    bill_id: UUID,
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[BillPaymentService, Depends(get_bill_payment_service)],
+) -> list[BillPaymentResponse]:
+    payments = await service.list_bill_payments(tenant_id, bill_id)
+    return [BillPaymentResponse.from_entity(p) for p in payments]
+
+
+@router.get("/bills/{bill_id}/settlement", response_model=BillSettlementResponse)
+async def get_bill_settlement(
+    bill_id: UUID,
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[BillPaymentService, Depends(get_bill_payment_service)],
+) -> BillSettlementResponse:
+    settlement = await service.get_bill_settlement(tenant_id, bill_id)
+    return BillSettlementResponse.from_entity(bill_id, settlement)
+
+
+@router.get("/bill-payments", response_model=list[BillPaymentResponse])
+async def list_bill_payments_all(
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[BillPaymentService, Depends(get_bill_payment_service)],
+    bill_id: UUID | None = None,
+    vendor_id: UUID | None = None,
+    payment_method: str | None = None,
+    date_from: date | None = None,
+    date_to: date | None = None,
+) -> list[BillPaymentResponse]:
+    payments = await service.list_payments(
+        tenant_id,
+        bill_id=bill_id,
+        vendor_id=vendor_id,
+        payment_method=payment_method,
+        date_from=date_from,
+        date_to=date_to,
+    )
+    return [BillPaymentResponse.from_entity(p) for p in payments]
+
+
+@router.get("/bill-payments/{payment_id}", response_model=BillPaymentResponse)
+async def get_bill_payment(
+    payment_id: UUID,
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[BillPaymentService, Depends(get_bill_payment_service)],
+) -> BillPaymentResponse:
+    payment = await service.get_payment(tenant_id, payment_id)
+    return BillPaymentResponse.from_entity(payment)

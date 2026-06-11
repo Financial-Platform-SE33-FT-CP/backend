@@ -24,16 +24,21 @@ from accounting_shared.middleware.tenant_context import get_current_tenant_id
 from accounting_shared.types import TenantId, UserId
 from ar_ap_service.config import ArApSettings
 from ar_ap_service.modules.ar_ap.application.services import (
+    BillPaymentService,
+    BillService,
     CreditNoteService,
     InvoiceService,
     PaymentService,
 )
 from ar_ap_service.modules.ar_ap.infrastructure.repository import (
     SqlAccountReader,
+    SqlAlchemyBillPaymentRepository,
+    SqlAlchemyBillRepository,
     SqlAlchemyCreditNoteRepository,
     SqlAlchemyCustomerRepository,
     SqlAlchemyInvoiceRepository,
     SqlAlchemyPaymentRepository,
+    SqlAlchemyVendorRepository,
     SqlLedgerPoster,
 )
 
@@ -195,6 +200,33 @@ async def get_credit_note_service(
         credit_notes=SqlAlchemyCreditNoteRepository(session),
         invoices=SqlAlchemyInvoiceRepository(session),
         customers=SqlAlchemyCustomerRepository(session),
+        accounts=SqlAccountReader(session),
+        ledger=SqlLedgerPoster(session),
+        settings=settings,
+    )
+
+
+async def get_bill_service(
+    session: AsyncSession = Depends(get_async_session),
+    settings: ArApSettings = Depends(get_settings),
+) -> BillService:
+    return BillService(
+        bills=SqlAlchemyBillRepository(session),
+        vendors=SqlAlchemyVendorRepository(session),
+        accounts=SqlAccountReader(session),
+        ledger=SqlLedgerPoster(session),
+        settings=settings,
+    )
+
+
+async def get_bill_payment_service(
+    session: AsyncSession = Depends(get_async_session),
+    settings: ArApSettings = Depends(get_settings),
+) -> BillPaymentService:
+    return BillPaymentService(
+        bill_payments=SqlAlchemyBillPaymentRepository(session),
+        bills=SqlAlchemyBillRepository(session),
+        vendors=SqlAlchemyVendorRepository(session),
         accounts=SqlAccountReader(session),
         ledger=SqlLedgerPoster(session),
         settings=settings,

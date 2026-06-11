@@ -40,3 +40,13 @@ class ArApSettings(SharedSettings):  # type: ignore[misc]
         validation_alias=AliasChoices("GST_OUTPUT_ACCOUNT_CODE"),
         description="Chart-of-accounts code for the GST Output Tax liability account.",
     )
+    ap_control_account_code: str = Field(
+        default="2000",
+        validation_alias=AliasChoices("AP_CONTROL_ACCOUNT_CODE"),
+        description="Chart-of-accounts code for the Accounts Payable control account.",
+    )
+    gst_input_account_code: str = Field(
+        default="1200",
+        validation_alias=AliasChoices("GST_INPUT_ACCOUNT_CODE"),
+        description="Chart-of-accounts code for the GST Input Tax asset account.",
+    )

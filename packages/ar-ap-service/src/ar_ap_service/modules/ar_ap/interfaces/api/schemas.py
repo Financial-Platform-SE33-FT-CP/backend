@@ -9,11 +9,16 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from ar_ap_service.modules.ar_ap.domain.entities import (
+    APAgingLine,
+    Bill,
+    BillPayment,
+    BillSettlement,
     CreditNote,
     Invoice,
     InvoiceSettlement,
     Payment,
     PaymentMethod,
+    Vendor,
 )
 
 
@@ -263,4 +268,192 @@ class CreditNoteResponse(BaseModel):
                 )
                 for line in credit_note.lines
             ],
+        )
+
+
+class BillLineRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: UUID
+    quantity: Decimal = Field(gt=0)
+    unit_price: Decimal = Field(ge=0)
+    description: str | None = None
+    gst_rate: Decimal = Field(default=Decimal("0"), ge=0)
+
+
+class CreateBillRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    vendor_id: UUID
+    issue_date: date
+    due_date: date
+    lines: list[BillLineRequest] = Field(min_length=1)
+
+
+class UpdateBillRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    vendor_id: UUID | None = None
+    issue_date: date | None = None
+    due_date: date | None = None
+    lines: list[BillLineRequest] | None = Field(default=None, min_length=1)
+
+
+class BillLineResponse(BaseModel):
+    id: UUID
+    account_id: UUID
+    description: str | None
+    quantity: Decimal
+    unit_price: Decimal
+    gst_rate: Decimal
+    line_total: Decimal
+    gst_amount: Decimal
+
+
+class BillResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID | None
+    vendor_id: UUID | None
+    bill_number: str
+    issue_date: date | None
+    due_date: date | None
+    status: str
+    subtotal: Decimal
+    gst_amount: Decimal
+    total: Decimal
+    journal_entry_id: str | None
+    created_by: UUID | None
+    created_at: datetime
+    updated_at: datetime | None
+    lines: list[BillLineResponse]
+
+    @classmethod
+    def from_entity(cls, bill: Bill) -> BillResponse:
+        return cls(
+            id=bill.id,
+            tenant_id=bill.tenant_id,
+            vendor_id=bill.vendor_id,
+            bill_number=bill.bill_number,
+            issue_date=bill.issue_date,
+            due_date=bill.due_date,
+            status=bill.status.value,
+            subtotal=bill.subtotal,
+            gst_amount=bill.gst_amount,
+            total=bill.total,
+            journal_entry_id=bill.journal_entry_id,
+            created_by=bill.created_by,
+            created_at=bill.created_at,
+            updated_at=bill.updated_at,
+            lines=[
+                BillLineResponse(
+                    id=line.id,
+                    account_id=line.account_id,
+                    description=line.description,
+                    quantity=line.quantity,
+                    unit_price=line.unit_price,
+                    gst_rate=line.gst_rate,
+                    line_total=line.line_total,
+                    gst_amount=line.gst_amount,
+                )
+                for line in bill.lines
+            ],
+        )
+
+
+class CreateVendorRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    name: str = Field(min_length=1, max_length=255)
+    email: str | None = None
+
+
+class VendorResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID | None
+    name: str
+    email: str | None
+
+
+class PayBillRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+
+    payment_date: date
+    amount: Decimal = Field(gt=0)
+    payment_method: PaymentMethod = PaymentMethod.BANK_TRANSFER
+    reference: str | None = Field(default=None, max_length=255)
+    payment_account_id: UUID
+    idempotency_key: str | None = Field(default=None, max_length=255)
+
+
+class BillPaymentResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID | None
+    bill_id: UUID
+    vendor_id: UUID | None
+    amount: Decimal
+    payment_date: date | None
+    payment_method: str
+    reference: str | None
+    payment_account_id: UUID | None
+    journal_entry_id: str | None
+    created_by: UUID | None
+    created_at: datetime
+
+    @classmethod
+    def from_entity(cls, payment: BillPayment) -> BillPaymentResponse:
+        return cls(
+            id=payment.id,
+            tenant_id=payment.tenant_id,
+            bill_id=payment.bill_id,
+            vendor_id=payment.vendor_id,
+            amount=payment.amount,
+            payment_date=payment.payment_date,
+            payment_method=payment.payment_method.value,
+            reference=payment.reference,
+            payment_account_id=payment.payment_account_id,
+            journal_entry_id=payment.journal_entry_id,
+            created_by=payment.created_by,
+            created_at=payment.created_at,
+        )
+
+
+class BillSettlementResponse(BaseModel):
+    bill_id: UUID
+    bill_total: Decimal
+    amount_paid: Decimal
+    outstanding: Decimal
+
+    @classmethod
+    def from_entity(cls, bill_id: UUID, settlement: BillSettlement) -> BillSettlementResponse:
+        return cls(
+            bill_id=bill_id,
+            bill_total=settlement.bill_total,
+            amount_paid=settlement.amount_paid,
+            outstanding=settlement.outstanding,
+        )
+
+
+class APAgingLineResponse(BaseModel):
+    bill_id: UUID
+    vendor_id: UUID | None
+    bill_number: str
+    due_date: date | None
+    bill_total: Decimal
+    amount_paid: Decimal
+    outstanding: Decimal
+    days_overdue: int
+    aging_bucket: str
+
+    @classmethod
+    def from_entity(cls, line: APAgingLine) -> APAgingLineResponse:
+        return cls(
+            bill_id=line.bill_id,
+            vendor_id=line.vendor_id,
+            bill_number=line.bill_number,
+            due_date=line.due_date,
+            bill_total=line.bill_total,
+            amount_paid=line.amount_paid,
+            outstanding=line.outstanding,
+            days_overdue=line.days_overdue,
+            aging_bucket=line.aging_bucket,
         )
