@@ -69,9 +69,7 @@ _PAYABLE_STATUSES: frozenset[InvoiceStatus] = frozenset(
 _CREDITABLE_STATUSES: frozenset[InvoiceStatus] = frozenset(
     {InvoiceStatus.ISSUED, InvoiceStatus.PARTIAL, InvoiceStatus.PAID, InvoiceStatus.OVERDUE}
 )
-_PAYABLE_BILL_STATUSES: frozenset[BillStatus] = frozenset(
-    {BillStatus.OPEN, BillStatus.PARTIAL}
-)
+_PAYABLE_BILL_STATUSES: frozenset[BillStatus] = frozenset({BillStatus.OPEN, BillStatus.PARTIAL})
 
 
 class InvoiceService:
@@ -1107,7 +1105,9 @@ class BillService:
         if vendor is None:
             raise ValidationError("Vendor not found for this tenant.")
 
-    async def _build_lines(self, tenant_id: UUID, line_inputs: list[BillLineInput]) -> list[BillLine]:
+    async def _build_lines(
+        self, tenant_id: UUID, line_inputs: list[BillLineInput]
+    ) -> list[BillLine]:
         if not line_inputs:
             raise ValidationError("A bill must have at least one line.")
         lines: list[BillLine] = []
@@ -1301,9 +1301,7 @@ class BillPaymentService:
         if bill.status == BillStatus.PAID:
             raise ConflictError("Bill is already fully paid.")
         if bill.status not in _PAYABLE_BILL_STATUSES:
-            raise ConflictError(
-                f"Cannot pay a bill with status {bill.status.value!r}."
-            )
+            raise ConflictError(f"Cannot pay a bill with status {bill.status.value!r}.")
 
         amount = command.amount.quantize(_ZERO)
         if amount <= _ZERO:
@@ -1375,7 +1373,9 @@ class BillPaymentService:
         await self._bills.update(bill)
         return saved
 
-    async def get_ap_aging(self, tenant_id: UUID, *, as_of: date | None = None) -> list[APAgingLine]:
+    async def get_ap_aging(
+        self, tenant_id: UUID, *, as_of: date | None = None
+    ) -> list[APAgingLine]:
         on_date = as_of or date.today()
         aging: list[APAgingLine] = []
         for bill in await self._bills.list_by_tenant(tenant_id):

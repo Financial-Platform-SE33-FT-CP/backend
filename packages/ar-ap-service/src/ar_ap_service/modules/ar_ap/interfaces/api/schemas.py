@@ -18,7 +18,6 @@ from ar_ap_service.modules.ar_ap.domain.entities import (
     InvoiceSettlement,
     Payment,
     PaymentMethod,
-    Vendor,
 )
 
 

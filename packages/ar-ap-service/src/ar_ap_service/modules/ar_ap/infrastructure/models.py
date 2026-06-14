@@ -31,15 +31,15 @@ class CustomerModel(Base):  # type: ignore[misc, valid-type]
 class VendorModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "vendors"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    name = Column(String(255), nullable=False)
-    email = Column(String(254), nullable=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
 
 
 class GstCodeModel(Base):  # type: ignore[misc, valid-type]

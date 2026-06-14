@@ -600,8 +600,7 @@ async def list_vendors(
 ) -> list[VendorResponse]:
     vendors = await service.list_vendors(tenant_id)
     return [
-        VendorResponse(id=v.id, tenant_id=v.tenant_id, name=v.name, email=v.email)
-        for v in vendors
+        VendorResponse(id=v.id, tenant_id=v.tenant_id, name=v.name, email=v.email) for v in vendors
     ]
 
 

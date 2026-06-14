@@ -787,9 +787,7 @@ class SqlAlchemyBillRepository(BillRepository):
         model.journal_entry_id = bill.journal_entry_id
         model.status = bill.status.value
         model.updated_at = bill.updated_at
-        await self._session.execute(
-            delete(BillLineModel).where(BillLineModel.bill_id == bill.id)
-        )
+        await self._session.execute(delete(BillLineModel).where(BillLineModel.bill_id == bill.id))
         for line in bill.lines:
             self._session.add(
                 BillLineModel(

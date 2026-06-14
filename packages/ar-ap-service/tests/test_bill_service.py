@@ -21,7 +21,6 @@ from .conftest import (
     TENANT_B,
     FakeBillRepository,
     FakeLedgerPoster,
-    FakeVendorRepository,
 )
 
 BILL_DATE = date(2026, 4, 1)
