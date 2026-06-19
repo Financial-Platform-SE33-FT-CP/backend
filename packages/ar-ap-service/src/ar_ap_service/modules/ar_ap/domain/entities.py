@@ -258,3 +258,135 @@ class CreditNote:
         self.subtotal = _money(subtotal)
         self.gst_amount = _money(gst)
         self.total = _money(self.subtotal + self.gst_amount)
+
+
+class BillStatus(StrEnum):
+    """Lifecycle of a vendor bill (US-11 / US-12)."""
+
+    DRAFT = "draft"
+    OPEN = "open"
+    PARTIAL = "partial"
+    PAID = "paid"
+    VOID = "void"
+
+
+POSTED_BILL_STATUSES: frozenset[BillStatus] = frozenset(
+    {
+        BillStatus.OPEN,
+        BillStatus.PARTIAL,
+        BillStatus.PAID,
+    }
+)
+
+
+@dataclass
+class BillLine:
+    """A single line on a vendor bill."""
+
+    account_id: UUID
+    quantity: Decimal
+    unit_price: Decimal
+    description: str | None = None
+    gst_rate: Decimal = _ZERO
+    id: UUID = field(default_factory=uuid4)
+    bill_id: UUID | None = None
+    line_total: Decimal = _ZERO
+    gst_amount: Decimal = _ZERO
+
+    def recalculate(self) -> None:
+        net = _money(self.quantity * self.unit_price)
+        self.line_total = net
+        self.gst_amount = _money(net * (self.gst_rate or _ZERO))
+
+
+@dataclass
+class Bill:
+    """A vendor bill aggregate with its lines."""
+
+    id: UUID = field(default_factory=uuid4)
+    tenant_id: UUID | None = None
+    vendor_id: UUID | None = None
+    bill_number: str = ""
+    issue_date: date | None = None
+    due_date: date | None = None
+    status: BillStatus = BillStatus.DRAFT
+    subtotal: Decimal = _ZERO
+    gst_amount: Decimal = _ZERO
+    total: Decimal = _ZERO
+    journal_entry_id: str | None = None
+    created_by: UUID | None = None
+    created_at: datetime = field(default_factory=datetime.utcnow)
+    updated_at: datetime | None = None
+    lines: list[BillLine] = field(default_factory=list)
+
+    @property
+    def is_posted(self) -> bool:
+        return self.status in POSTED_BILL_STATUSES
+
+    def recalculate_totals(self) -> None:
+        subtotal = _ZERO
+        gst = _ZERO
+        for line in self.lines:
+            line.recalculate()
+            subtotal += line.line_total
+            gst += line.gst_amount
+        self.subtotal = _money(subtotal)
+        self.gst_amount = _money(gst)
+        self.total = _money(self.subtotal + self.gst_amount)
+
+
+@dataclass
+class Vendor:
+    """A tenant's vendor (bill counterparty)."""
+
+    id: UUID = field(default_factory=uuid4)
+    tenant_id: UUID | None = None
+    name: str = ""
+    email: str | None = None
+
+
+@dataclass
+class BillPayment:
+    """A payment recorded against a posted vendor bill (US-12)."""
+
+    bill_id: UUID
+    amount: Decimal
+    payment_account_id: UUID | None
+    id: UUID = field(default_factory=uuid4)
+    tenant_id: UUID | None = None
+    vendor_id: UUID | None = None
+    payment_date: date | None = None
+    payment_method: PaymentMethod = PaymentMethod.BANK_TRANSFER
+    reference: str | None = None
+    journal_entry_id: str | None = None
+    idempotency_key: str | None = None
+    created_by: UUID | None = None
+    created_at: datetime = field(default_factory=datetime.utcnow)
+
+
+@dataclass(frozen=True)
+class BillSettlement:
+    """Snapshot of how much of a bill has been paid."""
+
+    bill_total: Decimal
+    amount_paid: Decimal
+
+    @property
+    def outstanding(self) -> Decimal:
+        remaining = self.bill_total - self.amount_paid
+        return remaining if remaining > _ZERO else _ZERO
+
+
+@dataclass(frozen=True)
+class APAgingLine:
+    """One open bill row for AP aging (US-12)."""
+
+    bill_id: UUID
+    vendor_id: UUID | None
+    bill_number: str
+    due_date: date | None
+    bill_total: Decimal
+    amount_paid: Decimal
+    outstanding: Decimal
+    days_overdue: int
+    aging_bucket: str

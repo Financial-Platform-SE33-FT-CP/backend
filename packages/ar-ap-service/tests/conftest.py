@@ -17,34 +17,44 @@ import pytest
 
 from ar_ap_service.config import ArApSettings
 from ar_ap_service.modules.ar_ap.application.services import (
+    BillPaymentService,
+    BillService,
     CreditNoteService,
     InvoiceService,
     PaymentService,
 )
 from ar_ap_service.modules.ar_ap.domain.entities import (
     AccountInfo,
+    Bill,
+    BillPayment,
     CreditNote,
     Customer,
     Invoice,
     JournalLineInput,
     Payment,
+    Vendor,
 )
 from ar_ap_service.modules.ar_ap.domain.repository import (
     AccountReader,
+    BillPaymentRepository,
+    BillRepository,
     CreditNoteRepository,
     CustomerRepository,
     InvoiceRepository,
     LedgerPoster,
     PaymentRepository,
+    VendorRepository,
 )
 
 TENANT_A = UUID("00000000-0000-0000-0000-0000000000aa")
 TENANT_B = UUID("00000000-0000-0000-0000-0000000000bb")
 
 AR_ACCOUNT_ID = UUID("11111111-1111-1111-1111-111111111111")
+AP_ACCOUNT_ID = UUID("66666666-6666-6666-6666-666666666666")
 REVENUE_ACCOUNT_ID = UUID("44444444-4444-4444-4444-444444444444")
 REVENUE_ACCOUNT_2_ID = UUID("44444444-4444-4444-4444-444444444445")
 GST_ACCOUNT_ID = UUID("22222222-2222-2222-2222-222222222222")
+GST_INPUT_ACCOUNT_ID = UUID("77777777-7777-7777-7777-777777777777")
 EXPENSE_ACCOUNT_ID = UUID("55555555-5555-5555-5555-555555555555")
 BANK_ACCOUNT_ID = UUID("33333333-3333-3333-3333-333333333333")
 
@@ -236,6 +246,14 @@ def accounts() -> FakeAccountReader:
             tenant,
             AccountInfo(BANK_ACCOUNT_ID, "1000", "Cash at Bank", "asset", True),
         )
+        reader.seed(
+            tenant,
+            AccountInfo(AP_ACCOUNT_ID, "2000", "Accounts Payable", "liability", True),
+        )
+        reader.seed(
+            tenant,
+            AccountInfo(GST_INPUT_ACCOUNT_ID, "1200", "GST Input Tax", "asset", True),
+        )
     return reader
 
 
@@ -250,6 +268,8 @@ def settings() -> ArApSettings:
         tenant_internal_api_token="test-token",
         ar_control_account_code="1100",
         gst_output_account_code="2100",
+        ap_control_account_code="2000",
+        gst_input_account_code="1200",
         jwt_secret="test-secret",
     )
 
@@ -436,6 +456,202 @@ class FakeCreditNoteRepository(CreditNoteRepository):
 @pytest.fixture
 def credit_notes() -> FakeCreditNoteRepository:
     return FakeCreditNoteRepository()
+
+
+class FakeBillRepository(BillRepository):
+    def __init__(self) -> None:
+        self._store: dict[UUID, Bill] = {}
+
+    async def get_by_id(self, tenant_id: UUID, bill_id: UUID) -> Bill | None:
+        bill = self._store.get(bill_id)
+        if bill is None or bill.tenant_id != tenant_id:
+            return None
+        return copy.deepcopy(bill)
+
+    async def list_by_tenant(
+        self,
+        tenant_id: UUID,
+        *,
+        status: str | None = None,
+        vendor_id: UUID | None = None,
+        issued_from: date | None = None,
+        issued_to: date | None = None,
+    ) -> list[Bill]:
+        result = []
+        for bill in self._store.values():
+            if bill.tenant_id != tenant_id:
+                continue
+            if status is not None and bill.status.value != status:
+                continue
+            if vendor_id is not None and bill.vendor_id != vendor_id:
+                continue
+            if issued_from is not None and (bill.issue_date is None or bill.issue_date < issued_from):
+                continue
+            if issued_to is not None and (bill.issue_date is None or bill.issue_date > issued_to):
+                continue
+            result.append(copy.deepcopy(bill))
+        return result
+
+    async def add(self, bill: Bill) -> Bill:
+        self._store[bill.id] = copy.deepcopy(bill)
+        return copy.deepcopy(bill)
+
+    async def update(self, bill: Bill) -> Bill:
+        self._store[bill.id] = copy.deepcopy(bill)
+        return copy.deepcopy(bill)
+
+    async def delete(self, bill: Bill) -> None:
+        self._store.pop(bill.id, None)
+
+    async def count_with_number_prefix(self, tenant_id: UUID, prefix: str) -> int:
+        return sum(
+            1
+            for bill in self._store.values()
+            if bill.tenant_id == tenant_id and bill.bill_number.startswith(prefix)
+        )
+
+
+class FakeVendorRepository(VendorRepository):
+    def __init__(self) -> None:
+        self._store: dict[UUID, Vendor] = {}
+
+    def seed(self, vendor: Vendor) -> Vendor:
+        self._store[vendor.id] = vendor
+        return vendor
+
+    async def get_by_id(self, tenant_id: UUID, vendor_id: UUID) -> Vendor | None:
+        vendor = self._store.get(vendor_id)
+        if vendor is None or vendor.tenant_id != tenant_id:
+            return None
+        return vendor
+
+    async def list_by_tenant(self, tenant_id: UUID) -> list[Vendor]:
+        return [v for v in self._store.values() if v.tenant_id == tenant_id]
+
+    async def add(self, vendor: Vendor) -> Vendor:
+        self._store[vendor.id] = vendor
+        return vendor
+
+
+class FakeBillPaymentRepository(BillPaymentRepository):
+    def __init__(self) -> None:
+        self._store: dict[UUID, BillPayment] = {}
+
+    async def add(self, payment: BillPayment) -> BillPayment:
+        self._store[payment.id] = copy.deepcopy(payment)
+        return copy.deepcopy(payment)
+
+    async def get_by_id(self, tenant_id: UUID, payment_id: UUID) -> BillPayment | None:
+        payment = self._store.get(payment_id)
+        if payment is None or payment.tenant_id != tenant_id:
+            return None
+        return copy.deepcopy(payment)
+
+    async def list_by_bill(self, tenant_id: UUID, bill_id: UUID) -> list[BillPayment]:
+        return [
+            copy.deepcopy(p)
+            for p in sorted(self._store.values(), key=lambda p: p.created_at)
+            if p.tenant_id == tenant_id and p.bill_id == bill_id
+        ]
+
+    async def list_by_tenant(
+        self,
+        tenant_id: UUID,
+        *,
+        bill_id: UUID | None = None,
+        vendor_id: UUID | None = None,
+        payment_method: str | None = None,
+        date_from: date | None = None,
+        date_to: date | None = None,
+    ) -> list[BillPayment]:
+        result = []
+        for p in sorted(self._store.values(), key=lambda p: p.created_at, reverse=True):
+            if p.tenant_id != tenant_id:
+                continue
+            if bill_id is not None and p.bill_id != bill_id:
+                continue
+            if vendor_id is not None and p.vendor_id != vendor_id:
+                continue
+            if payment_method is not None and p.payment_method.value != payment_method:
+                continue
+            if date_from is not None and (p.payment_date is None or p.payment_date < date_from):
+                continue
+            if date_to is not None and (p.payment_date is None or p.payment_date > date_to):
+                continue
+            result.append(copy.deepcopy(p))
+        return result
+
+    async def sum_paid_for_bill(self, tenant_id: UUID, bill_id: UUID) -> Decimal:
+        total = Decimal("0.00")
+        for p in self._store.values():
+            if p.tenant_id == tenant_id and p.bill_id == bill_id:
+                total += p.amount
+        return total
+
+    async def get_by_idempotency_key(self, tenant_id: UUID, key: str) -> BillPayment | None:
+        for p in self._store.values():
+            if p.tenant_id == tenant_id and p.idempotency_key == key:
+                return copy.deepcopy(p)
+        return None
+
+
+@pytest.fixture
+def bills() -> FakeBillRepository:
+    return FakeBillRepository()
+
+
+@pytest.fixture
+def vendors() -> FakeVendorRepository:
+    repo = FakeVendorRepository()
+    repo.seed(Vendor(id=uuid4(), tenant_id=TENANT_A, name="Supplier Co"))
+    repo.seed(Vendor(id=uuid4(), tenant_id=TENANT_B, name="Other Vendor"))
+    return repo
+
+
+@pytest.fixture
+def bill_payments() -> FakeBillPaymentRepository:
+    return FakeBillPaymentRepository()
+
+
+@pytest.fixture
+def bill_service(
+    bills: FakeBillRepository,
+    vendors: FakeVendorRepository,
+    accounts: FakeAccountReader,
+    ledger: FakeLedgerPoster,
+    settings: ArApSettings,
+) -> BillService:
+    return BillService(
+        bills=bills,
+        vendors=vendors,
+        accounts=accounts,
+        ledger=ledger,
+        settings=settings,
+    )
+
+
+@pytest.fixture
+def vendor_a(vendors: FakeVendorRepository) -> Vendor:
+    return next(v for v in vendors._store.values() if v.tenant_id == TENANT_A)
+
+
+@pytest.fixture
+def bill_payment_service(
+    bill_payments: FakeBillPaymentRepository,
+    bills: FakeBillRepository,
+    vendors: FakeVendorRepository,
+    accounts: FakeAccountReader,
+    ledger: FakeLedgerPoster,
+    settings: ArApSettings,
+) -> BillPaymentService:
+    return BillPaymentService(
+        bill_payments=bill_payments,
+        bills=bills,
+        vendors=vendors,
+        accounts=accounts,
+        ledger=ledger,
+        settings=settings,
+    )
 
 
 @pytest.fixture

@@ -85,6 +85,53 @@ class CreditNoteLineInput(BaseModel):
     invoice_line_id: UUID | None = None
 
 
+class BillLineInput(BaseModel):
+    """A single bill line supplied by the client (US-11)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    account_id: UUID
+    quantity: Decimal = Field(gt=0)
+    unit_price: Decimal = Field(ge=0)
+    description: str | None = None
+    gst_rate: Decimal = Field(default=Decimal("0"), ge=0)
+
+
+class CreateBillCommand(BaseModel):
+    """Payload for creating a draft vendor bill."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    vendor_id: UUID
+    issue_date: date
+    due_date: date
+    lines: list[BillLineInput] = Field(min_length=1)
+
+
+class UpdateBillCommand(BaseModel):
+    """Payload for updating a draft vendor bill."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    vendor_id: UUID | None = None
+    issue_date: date | None = None
+    due_date: date | None = None
+    lines: list[BillLineInput] | None = Field(default=None, min_length=1)
+
+
+class PayBillCommand(BaseModel):
+    """Payload for paying a posted vendor bill (US-12)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    payment_date: date
+    amount: Decimal = Field(gt=0)
+    payment_method: PaymentMethod = PaymentMethod.BANK_TRANSFER
+    reference: str | None = Field(default=None, max_length=255)
+    payment_account_id: UUID
+    idempotency_key: str | None = Field(default=None, max_length=255)
+
+
 class IssueCreditNoteCommand(BaseModel):
     """Payload for issuing a credit note against an issued invoice (US-10).
 

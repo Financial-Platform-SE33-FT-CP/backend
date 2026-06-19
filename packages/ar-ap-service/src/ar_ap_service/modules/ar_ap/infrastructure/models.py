@@ -31,15 +31,15 @@ class CustomerModel(Base):  # type: ignore[misc, valid-type]
 class VendorModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "vendors"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    name = Column(String(255), nullable=False)
-    email = Column(String(254), nullable=True)
+    name: Mapped[str] = mapped_column(String(255), nullable=False)
+    email: Mapped[str | None] = mapped_column(String(254), nullable=True)
 
 
 class GstCodeModel(Base):  # type: ignore[misc, valid-type]
@@ -130,51 +130,115 @@ class InvoiceLineModel(Base):  # type: ignore[misc, valid-type]
 class BillModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "bills"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    vendor_id = Column(
+    vendor_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("vendors.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    bill_number = Column(String(100), nullable=False)
-    issue_date = Column(Date, nullable=True)
-    due_date = Column(Date, nullable=True)
-    status = Column(String(32), nullable=False, default="unpaid")
-    subtotal = Column(Numeric(18, 2), nullable=True)
-    gst_amount = Column(Numeric(18, 2), nullable=True)
-    total = Column(Numeric(18, 2), nullable=True)
-    journal_entry_id = Column(
+    bill_number: Mapped[str] = mapped_column(String(100), nullable=False, default="")
+    issue_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    due_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    status: Mapped[str] = mapped_column(String(32), nullable=False, default="draft")
+    subtotal: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    gst_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
+    journal_entry_id: Mapped[str | None] = mapped_column(
         String(36),
         ForeignKey("journal_entries.id", ondelete="SET NULL"),
         nullable=True,
     )
-    created_at = Column(DateTime, nullable=False, default=datetime.utcnow)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+    updated_at: Mapped[datetime | None] = mapped_column(
+        DateTime, nullable=True, default=datetime.utcnow, onupdate=datetime.utcnow
+    )
+
+    lines: Mapped[list["BillLineModel"]] = relationship(
+        "BillLineModel",
+        back_populates="bill",
+        cascade="all, delete-orphan",
+    )
+    bill_payments: Mapped[list["BillPaymentModel"]] = relationship(
+        "BillPaymentModel", back_populates="bill"
+    )
 
 
 class BillLineModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "bill_lines"
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    bill_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    bill_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("bills.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    description = Column(Text, nullable=True)
-    account_id = Column(
+    description: Mapped[str | None] = mapped_column(Text, nullable=True)
+    quantity: Mapped[Decimal] = mapped_column(Numeric(18, 4), nullable=False, default=1)
+    unit_price: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    account_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("chart_of_accounts.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    amount = Column(Numeric(18, 2), nullable=False)
-    gst_rate = Column(Numeric(8, 4), nullable=True)
+    gst_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
+    line_total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    gst_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0.00")
+    )
+
+    bill: Mapped["BillModel"] = relationship("BillModel", back_populates="lines")
+
+
+class BillPaymentModel(Base):  # type: ignore[misc, valid-type]
+    """SQLAlchemy model for bill_payments (US-12: pay vendor bills)."""
+
+    __tablename__ = "bill_payments"
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id", "idempotency_key", name="uq_bill_payments_tenant_idempotency_key"
+        ),
+    )
+
+    id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid4)
+    tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
+    bill_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("bills.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
+    )
+    vendor_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("vendors.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    amount: Mapped[Decimal] = mapped_column(Numeric(12, 2), nullable=False, default=Decimal("0.00"))
+    payment_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    payment_method: Mapped[str] = mapped_column(String(32), nullable=False, default="bank_transfer")
+    reference: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    payment_account_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("chart_of_accounts.id", ondelete="RESTRICT"),
+        nullable=True,
+    )
+    journal_entry_id: Mapped[str | None] = mapped_column(
+        String(36),
+        ForeignKey("journal_entries.id", ondelete="SET NULL"),
+        nullable=True,
+    )
+    idempotency_key: Mapped[str | None] = mapped_column(String(255), nullable=True)
+    created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
+
+    bill: Mapped["BillModel"] = relationship("BillModel", back_populates="bill_payments")
 
 
 class BankAccountModel(Base):  # type: ignore[misc, valid-type]
