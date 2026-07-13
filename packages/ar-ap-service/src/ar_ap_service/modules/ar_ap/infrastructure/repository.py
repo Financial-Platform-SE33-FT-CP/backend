@@ -1076,7 +1076,7 @@ class SqlAlchemyGstRepository(GstRepository):
 
         result = await self._session.execute(stmt)
         return [_gst_code_to_entity(model) for model in result.scalars().all()]
-    
+
     async def add_codes(
         self,
         codes: Sequence[GstCode],

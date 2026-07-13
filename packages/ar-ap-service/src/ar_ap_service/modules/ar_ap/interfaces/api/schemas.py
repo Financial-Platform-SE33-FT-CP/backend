@@ -489,7 +489,7 @@ class GstCodeResponse(BaseModel):
             gst_kind=gst_code.gst_kind.value,
             is_active=gst_code.is_active,
         )
-    
+
 
 class GstSummaryResponse(BaseModel):
     """Aggregated GST figures for one reporting period."""
@@ -510,4 +510,4 @@ class GstSummaryResponse(BaseModel):
             net_gst_payable=summary.net_gst_payable,
             zero_rated_supplies=summary.zero_rated_supplies,
             exempt_supplies=summary.exempt_supplies,
-        )    
+        )

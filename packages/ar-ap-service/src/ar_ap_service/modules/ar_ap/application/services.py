@@ -902,7 +902,7 @@ class CreditNoteService:
             reversed_entry_id=invoice.journal_entry_id,
         )
         credit_note.journal_entry_id = journal_entry_id
-        
+
         saved_credit_note = await self._credit_notes.add(credit_note)
 
         gst_transactions = self._build_gst_transactions(saved_credit_note)
@@ -1057,7 +1057,7 @@ class CreditNoteService:
                 f"Journal entry is not balanced: debit {total_debit}, credit {total_credit}."
             )
         return lines
-    
+
     def _build_gst_transactions(
         self,
         credit_note: CreditNote,
@@ -1419,7 +1419,7 @@ class BillService:
                 f"Journal entry is not balanced: debit {total_debit}, credit {total_credit}."
             )
         return lines
-    
+
     def _build_gst_transactions(
         self,
         bill: Bill,
@@ -1707,7 +1707,7 @@ class GstService:
             tenant_id,
             active_only=active_only,
         )
-    
+
     async def ensure_default_codes(
         self,
         tenant_id: UUID,
@@ -1836,7 +1836,7 @@ class GstService:
                 Decimal("0.01")
             ),
         )
-    
+
     async def build_summary_csv(
         self,
         tenant_id: UUID,
