@@ -63,17 +63,34 @@ class GstCodeModel(Base):  # type: ignore[misc, valid-type]
         ),
     )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    code = Column(String(32), nullable=False)
-    rate = Column(Numeric(8, 4), nullable=False)
-    gst_kind = Column(String(16), nullable=False)
-    is_active = Column(Boolean, nullable=False, default=True)
+    code: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+    )
+    rate: Mapped[Decimal] = mapped_column(
+        Numeric(8, 4),
+        nullable=False,
+    )
+    gst_kind: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+    )
+    is_active: Mapped[bool] = mapped_column(
+        Boolean,
+        nullable=False,
+        default=True,
+    )
 
 
 class InvoiceModel(Base):  # type: ignore[misc, valid-type]
@@ -316,47 +333,49 @@ class BankTransactionModel(Base):  # type: ignore[misc, valid-type]
 
 class GstTransactionModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "gst_transactions"
-    __table_args__ = (
-        Index(
-            "ix_gst_transactions_tenant_period",
-            "tenant_id",
-            "reporting_period",
-        ),
-        Index(
-            "ix_gst_transactions_tenant_date",
-            "tenant_id",
-            "transaction_date",
-        ),
-        Index(
-            "uq_gst_transactions_tenant_source_code",
-            "tenant_id",
-            "source_type",
-            "source_id",
-            "gst_code_id",
-            unique=True,
-        ),
-    )
 
-    id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
-    tenant_id = Column(
+    id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        primary_key=True,
+        default=uuid.uuid4,
+    )
+    tenant_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("tenants.id", ondelete="CASCADE"),
         nullable=False,
         index=True,
     )
-    source_type = Column(String(16), nullable=False)
-    source_id = Column(UUID(as_uuid=True), nullable=False)
-    gst_code_id = Column(
+    source_type: Mapped[str] = mapped_column(
+        String(16),
+        nullable=False,
+    )
+    source_id: Mapped[uuid.UUID] = mapped_column(
+        UUID(as_uuid=True),
+        nullable=False,
+    )
+    gst_code_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True),
         ForeignKey("gst_codes.id", ondelete="RESTRICT"),
         nullable=False,
     )
-    taxable_amount = Column(Numeric(18, 2), nullable=False)
-    gst_amount = Column(Numeric(18, 2), nullable=False)
-    reporting_period = Column(String(32), nullable=True)
-    transaction_date = Column(Date, nullable=True)
-    created_at = Column(
-        DateTime,
+    taxable_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2),
+        nullable=False,
+    )
+    gst_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2),
+        nullable=False,
+    )
+    reporting_period: Mapped[str] = mapped_column(
+        String(32),
+        nullable=False,
+    )
+    transaction_date: Mapped[date] = mapped_column(
+        Date,
+        nullable=False,
+    )
+    created_at: Mapped[datetime] = mapped_column(
+        DateTime(),
         nullable=False,
         default=datetime.utcnow,
     )

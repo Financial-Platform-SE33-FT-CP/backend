@@ -1128,7 +1128,7 @@ class SqlAlchemyGstRepository(GstRepository):
         self._session.add_all(models)
         await self._session.flush()
 
-        return transactions
+        return list(transactions)
 
     async def list_transactions_by_period(
         self,

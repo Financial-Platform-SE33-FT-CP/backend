@@ -470,6 +470,10 @@ class InvoiceService:
         invoice: Invoice,
     ) -> list[GstTransaction]:
         """Aggregate invoice lines into one GST transaction per GST code."""
+        tenant_id = invoice.tenant_id
+        if tenant_id is None:
+            raise ValidationError("Invoice tenant id is required for GST reporting.")
+
         if invoice.issue_date is None:
             raise ValidationError("Invoice issue date is required for GST reporting.")
         grouped: dict[UUID, tuple[Decimal, Decimal]] = {}
@@ -491,7 +495,7 @@ class InvoiceService:
         reporting_period = _gst_reporting_period(invoice.issue_date)
         return [
             GstTransaction(
-                tenant_id=invoice.tenant_id,
+                tenant_id=tenant_id,
                 source_type=GstSourceType.INVOICE,
                 source_id=invoice.id,
                 gst_code_id=gst_code_id,
@@ -1047,6 +1051,10 @@ class CreditNoteService:
         credit_note: CreditNote,
     ) -> list[GstTransaction]:
         """Build negative GST transactions for a credit-note reversal."""
+        tenant_id = credit_note.tenant_id
+        if tenant_id is None:
+            raise ValidationError("Invoice tenant id is required for GST reporting.")
+
         if credit_note.issue_date is None:
             raise ValidationError("Credit note issue date is required for GST reporting.")
         grouped: dict[UUID, tuple[Decimal, Decimal]] = {}
@@ -1066,7 +1074,7 @@ class CreditNoteService:
         reporting_period = _gst_reporting_period(credit_note.issue_date)
         return [
             GstTransaction(
-                tenant_id=credit_note.tenant_id,
+                tenant_id=tenant_id,
                 source_type=GstSourceType.CREDIT_NOTE,
                 source_id=credit_note.id,
                 gst_code_id=gst_code_id,
@@ -1399,6 +1407,10 @@ class BillService:
         bill: Bill,
     ) -> list[GstTransaction]:
         """Aggregate bill lines into one GST transaction per GST code."""
+        tenant_id = bill.tenant_id
+        if tenant_id is None:
+            raise ValidationError("Invoice tenant id is required for GST reporting.")
+
         if bill.issue_date is None:
             raise ValidationError("Bill issue date is required for GST reporting.")
         grouped: dict[UUID, tuple[Decimal, Decimal]] = {}
@@ -1418,7 +1430,7 @@ class BillService:
         reporting_period = _gst_reporting_period(bill.issue_date)
         return [
             GstTransaction(
-                tenant_id=bill.tenant_id,
+                tenant_id=tenant_id,
                 source_type=GstSourceType.BILL,
                 source_id=bill.id,
                 gst_code_id=gst_code_id,
