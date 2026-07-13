@@ -28,6 +28,10 @@ from ar_ap_service.modules.ar_ap.domain.entities import (
     CreditNoteLine,
     CreditNoteStatus,
     Customer,
+    GstCode,
+    GstKind,
+    GstSourceType,
+    GstTransaction,
     Invoice,
     InvoiceLine,
     InvoiceStatus,
@@ -42,6 +46,7 @@ from ar_ap_service.modules.ar_ap.domain.repository import (
     BillRepository,
     CreditNoteRepository,
     CustomerRepository,
+    GstRepository,
     InvoiceRepository,
     LedgerPoster,
     PaymentRepository,
@@ -56,6 +61,8 @@ from ar_ap_service.modules.ar_ap.infrastructure.models import (
     CustomerModel,
     InvoiceLineModel,
     InvoiceModel,
+    GstCodeModel,
+    GstTransactionModel,
     PaymentModel,
     VendorModel,
 )
@@ -123,6 +130,7 @@ def _invoice_to_entity(model: InvoiceModel) -> Invoice:
                 quantity=line.quantity,
                 unit_price=line.unit_price,
                 description=line.description,
+                gst_code_id=line.gst_code_id,
                 gst_rate=line.gst_rate if line.gst_rate is not None else _ZERO,
                 line_total=line.line_total if line.line_total is not None else _ZERO,
                 gst_amount=line.gst_amount if line.gst_amount is not None else _ZERO,
@@ -141,12 +149,49 @@ def _apply_lines(model: InvoiceModel, invoice: Invoice) -> None:
             quantity=line.quantity,
             unit_price=line.unit_price,
             description=line.description,
+            gst_code_id=line.gst_code_id,
             gst_rate=line.gst_rate,
             line_total=line.line_total,
             gst_amount=line.gst_amount,
         )
         for line in invoice.lines
     ]
+
+
+def _gst_code_to_entity(model: GstCodeModel) -> GstCode:
+    return GstCode(
+        id=model.id,
+        tenant_id=model.tenant_id,
+        code=model.code,
+        rate=model.rate,
+        gst_kind=GstKind(model.gst_kind),
+        is_active=model.is_active,
+    )
+
+
+def _gst_transaction_to_entity(
+    model: GstTransactionModel,
+) -> GstTransaction:
+    if model.transaction_date is None:
+        msg = f"GST transaction {model.id} has no transaction date."
+        raise RuntimeError(msg)
+
+    if model.reporting_period is None:
+        msg = f"GST transaction {model.id} has no reporting period."
+        raise RuntimeError(msg)
+
+    return GstTransaction(
+        id=model.id,
+        tenant_id=model.tenant_id,
+        source_type=GstSourceType(model.source_type),
+        source_id=model.source_id,
+        gst_code_id=model.gst_code_id,
+        taxable_amount=model.taxable_amount,
+        gst_amount=model.gst_amount,
+        reporting_period=model.reporting_period,
+        transaction_date=model.transaction_date,
+        created_at=model.created_at,
+    )
 
 
 class SqlAlchemyInvoiceRepository(InvoiceRepository):
@@ -245,6 +290,7 @@ class SqlAlchemyInvoiceRepository(InvoiceRepository):
                     quantity=line.quantity,
                     unit_price=line.unit_price,
                     description=line.description,
+                    gst_code_id=line.gst_code_id,
                     gst_rate=line.gst_rate,
                     line_total=line.line_total,
                     gst_amount=line.gst_amount,
@@ -493,6 +539,7 @@ def _credit_note_to_entity(model: CreditNoteModel) -> CreditNote:
                 quantity=line.quantity,
                 unit_price=line.unit_price,
                 description=line.description,
+                gst_code_id=line.gst_code_id,
                 gst_rate=line.gst_rate if line.gst_rate is not None else _ZERO,
                 line_total=line.line_total if line.line_total is not None else _ZERO,
                 gst_amount=line.gst_amount if line.gst_amount is not None else _ZERO,
@@ -538,6 +585,7 @@ class SqlAlchemyCreditNoteRepository(CreditNoteRepository):
                 quantity=line.quantity,
                 unit_price=line.unit_price,
                 description=line.description,
+                gst_code_id=line.gst_code_id,
                 gst_rate=line.gst_rate,
                 line_total=line.line_total,
                 gst_amount=line.gst_amount,
@@ -683,6 +731,7 @@ def _bill_to_entity(model: BillModel) -> Bill:
                 quantity=line.quantity,
                 unit_price=line.unit_price,
                 description=line.description,
+                gst_code_id=line.gst_code_id,
                 gst_rate=line.gst_rate if line.gst_rate is not None else _ZERO,
                 line_total=line.line_total if line.line_total is not None else _ZERO,
                 gst_amount=line.gst_amount if line.gst_amount is not None else _ZERO,
@@ -701,6 +750,7 @@ def _apply_bill_lines(model: BillModel, bill: Bill) -> None:
             quantity=line.quantity,
             unit_price=line.unit_price,
             description=line.description,
+            gst_code_id=line.gst_code_id,
             gst_rate=line.gst_rate,
             line_total=line.line_total,
             gst_amount=line.gst_amount,
@@ -797,6 +847,7 @@ class SqlAlchemyBillRepository(BillRepository):
                     quantity=line.quantity,
                     unit_price=line.unit_price,
                     description=line.description,
+                    gst_code_id=line.gst_code_id,
                     gst_rate=line.gst_rate,
                     line_total=line.line_total,
                     gst_amount=line.gst_amount,
@@ -987,6 +1038,121 @@ class SqlAlchemyBillPaymentRepository(BillPaymentRepository):
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
         return _bill_payment_to_entity(model) if model is not None else None
+
+
+class SqlAlchemyGstRepository(GstRepository):
+    """GST code and reporting transaction persistence."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_code_by_id(
+        self,
+        tenant_id: uuid.UUID,
+        gst_code_id: uuid.UUID,
+    ) -> GstCode | None:
+        stmt = select(GstCodeModel).where(
+            GstCodeModel.id == gst_code_id,
+            GstCodeModel.tenant_id == tenant_id,
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return _gst_code_to_entity(model) if model is not None else None
+
+    async def list_codes(
+        self,
+        tenant_id: uuid.UUID,
+        *,
+        active_only: bool = True,
+    ) -> list[GstCode]:
+        stmt = (
+            select(GstCodeModel)
+            .where(GstCodeModel.tenant_id == tenant_id)
+            .order_by(GstCodeModel.code.asc())
+        )
+
+        if active_only:
+            stmt = stmt.where(GstCodeModel.is_active.is_(True))
+
+        result = await self._session.execute(stmt)
+        return [_gst_code_to_entity(model) for model in result.scalars().all()]
+    
+    async def add_codes(
+        self,
+        codes: Sequence[GstCode],
+    ) -> list[GstCode]:
+        """Persist tenant-scoped GST codes."""
+        if not codes:
+            return []
+
+        models = [
+            GstCodeModel(
+                id=code.id,
+                tenant_id=code.tenant_id,
+                code=code.code,
+                rate=code.rate,
+                gst_kind=code.gst_kind.value,
+                is_active=code.is_active,
+            )
+            for code in codes
+        ]
+
+        self._session.add_all(models)
+        await self._session.flush()
+
+        return list(codes)
+
+    async def add_transactions(
+        self,
+        transactions: Sequence[GstTransaction],
+    ) -> list[GstTransaction]:
+        if not transactions:
+            return []
+
+        models = [
+            GstTransactionModel(
+                id=transaction.id,
+                tenant_id=transaction.tenant_id,
+                source_type=transaction.source_type.value,
+                source_id=transaction.source_id,
+                gst_code_id=transaction.gst_code_id,
+                taxable_amount=transaction.taxable_amount,
+                gst_amount=transaction.gst_amount,
+                reporting_period=transaction.reporting_period,
+                transaction_date=transaction.transaction_date,
+                created_at=transaction.created_at,
+            )
+            for transaction in transactions
+        ]
+
+        self._session.add_all(models)
+        await self._session.flush()
+
+        return transactions
+
+    async def list_transactions_by_period(
+        self,
+        tenant_id: uuid.UUID,
+        reporting_period: str,
+    ) -> list[GstTransaction]:
+        stmt = (
+            select(GstTransactionModel)
+            .where(
+                GstTransactionModel.tenant_id == tenant_id,
+                GstTransactionModel.reporting_period == reporting_period,
+            )
+            .order_by(
+                GstTransactionModel.transaction_date.asc(),
+                GstTransactionModel.created_at.asc(),
+                GstTransactionModel.id.asc(),
+            )
+        )
+
+        result = await self._session.execute(stmt)
+        return [
+            _gst_transaction_to_entity(model)
+            for model in result.scalars().all()
+        ]
 
 
 class SqlAccountReader(AccountReader):

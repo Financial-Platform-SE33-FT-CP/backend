@@ -5,7 +5,18 @@ from datetime import date, datetime
 from decimal import Decimal
 from uuid import uuid4
 
-from sqlalchemy import Boolean, Column, Date, DateTime, ForeignKey, Integer, Numeric, String, Text
+from sqlalchemy import (
+    Boolean,
+    Column,
+    Date,
+    DateTime,
+    ForeignKey,
+    Index,
+    Integer,
+    Numeric,
+    String,
+    Text,
+)
 from sqlalchemy.dialects.postgresql import UUID
 from sqlalchemy.orm import Mapped, declarative_base, mapped_column, relationship
 from sqlalchemy.schema import UniqueConstraint
@@ -44,7 +55,13 @@ class VendorModel(Base):  # type: ignore[misc, valid-type]
 
 class GstCodeModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "gst_codes"
-    __table_args__ = (UniqueConstraint("tenant_id", "code", name="uq_gst_codes_tenant_code"),)
+    __table_args__ = (
+        UniqueConstraint(
+            "tenant_id",
+            "code",
+            name="uq_gst_codes_tenant_code",
+        ),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     tenant_id = Column(
@@ -56,6 +73,7 @@ class GstCodeModel(Base):  # type: ignore[misc, valid-type]
     code = Column(String(32), nullable=False)
     rate = Column(Numeric(8, 4), nullable=False)
     gst_kind = Column(String(16), nullable=False)
+    is_active = Column(Boolean, nullable=False, default=True)
 
 
 class InvoiceModel(Base):  # type: ignore[misc, valid-type]
@@ -117,6 +135,12 @@ class InvoiceLineModel(Base):  # type: ignore[misc, valid-type]
         UUID(as_uuid=True),
         ForeignKey("chart_of_accounts.id", ondelete="RESTRICT"),
         nullable=False,
+    )
+    gst_code_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gst_codes.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
     )
     gst_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
     line_total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
@@ -187,6 +211,12 @@ class BillLineModel(Base):  # type: ignore[misc, valid-type]
         UUID(as_uuid=True),
         ForeignKey("chart_of_accounts.id", ondelete="RESTRICT"),
         nullable=False,
+    )
+    gst_code_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gst_codes.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
     )
     gst_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
     line_total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
@@ -286,6 +316,26 @@ class BankTransactionModel(Base):  # type: ignore[misc, valid-type]
 
 class GstTransactionModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "gst_transactions"
+    __table_args__ = (
+        Index(
+            "ix_gst_transactions_tenant_period",
+            "tenant_id",
+            "reporting_period",
+        ),
+        Index(
+            "ix_gst_transactions_tenant_date",
+            "tenant_id",
+            "transaction_date",
+        ),
+        Index(
+            "uq_gst_transactions_tenant_source_code",
+            "tenant_id",
+            "source_type",
+            "source_id",
+            "gst_code_id",
+            unique=True,
+        ),
+    )
 
     id = Column(UUID(as_uuid=True), primary_key=True, default=uuid4)
     tenant_id = Column(
@@ -304,6 +354,12 @@ class GstTransactionModel(Base):  # type: ignore[misc, valid-type]
     taxable_amount = Column(Numeric(18, 2), nullable=False)
     gst_amount = Column(Numeric(18, 2), nullable=False)
     reporting_period = Column(String(32), nullable=True)
+    transaction_date = Column(Date, nullable=True)
+    created_at = Column(
+        DateTime,
+        nullable=False,
+        default=datetime.utcnow,
+    )
 
 
 class PaymentModel(Base):  # type: ignore[misc, valid-type]
@@ -429,6 +485,12 @@ class CreditNoteLineModel(Base):  # type: ignore[misc, valid-type]
         UUID(as_uuid=True),
         ForeignKey("chart_of_accounts.id", ondelete="RESTRICT"),
         nullable=False,
+    )
+    gst_code_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gst_codes.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
     )
     gst_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
     line_total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)

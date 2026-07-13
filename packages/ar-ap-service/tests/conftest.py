@@ -12,6 +12,7 @@ import copy
 from datetime import date
 from decimal import Decimal
 from uuid import UUID, uuid4
+from collections.abc import Sequence
 
 import pytest
 
@@ -20,6 +21,7 @@ from ar_ap_service.modules.ar_ap.application.services import (
     BillPaymentService,
     BillService,
     CreditNoteService,
+    GstService,
     InvoiceService,
     PaymentService,
 )
@@ -29,6 +31,9 @@ from ar_ap_service.modules.ar_ap.domain.entities import (
     BillPayment,
     CreditNote,
     Customer,
+    GstCode,
+    GstKind,
+    GstTransaction,
     Invoice,
     JournalLineInput,
     Payment,
@@ -40,6 +45,7 @@ from ar_ap_service.modules.ar_ap.domain.repository import (
     BillRepository,
     CreditNoteRepository,
     CustomerRepository,
+    GstRepository,
     InvoiceRepository,
     LedgerPoster,
     PaymentRepository,
@@ -55,6 +61,10 @@ REVENUE_ACCOUNT_ID = UUID("44444444-4444-4444-4444-444444444444")
 REVENUE_ACCOUNT_2_ID = UUID("44444444-4444-4444-4444-444444444445")
 GST_ACCOUNT_ID = UUID("22222222-2222-2222-2222-222222222222")
 GST_INPUT_ACCOUNT_ID = UUID("77777777-7777-7777-7777-777777777777")
+GST_OUTPUT_CODE_ID = UUID("88888888-8888-8888-8888-888888888881")
+GST_INPUT_CODE_ID = UUID("88888888-8888-8888-8888-888888888882")
+GST_ZERO_RATED_CODE_ID = UUID("88888888-8888-8888-8888-888888888883")
+GST_EXEMPT_CODE_ID = UUID("88888888-8888-8888-8888-888888888884")
 EXPENSE_ACCOUNT_ID = UUID("55555555-5555-5555-5555-555555555555")
 BANK_ACCOUNT_ID = UUID("33333333-3333-3333-3333-333333333333")
 
@@ -203,6 +213,80 @@ class FakeLedgerPoster(LedgerPoster):
             }
         )
         return entry_id
+    
+
+class FakeGstRepository(GstRepository):
+    """In-memory GST repository used by service tests."""
+
+    def __init__(self) -> None:
+        self._codes: dict[UUID, GstCode] = {}
+        self._transactions: list[GstTransaction] = []
+
+    async def get_code_by_id(
+        self,
+        tenant_id: UUID,
+        gst_code_id: UUID,
+    ) -> GstCode | None:
+        code = self._codes.get(gst_code_id)
+
+        if code is None or code.tenant_id != tenant_id:
+            return None
+
+        return copy.deepcopy(code)
+
+    async def list_codes(
+        self,
+        tenant_id: UUID,
+        *,
+        active_only: bool = True,
+    ) -> list[GstCode]:
+        codes = [
+            code
+            for code in self._codes.values()
+            if code.tenant_id == tenant_id
+            and (not active_only or code.is_active)
+        ]
+
+        return [
+            copy.deepcopy(code)
+            for code in sorted(codes, key=lambda item: item.code)
+        ]
+    
+    async def add_codes(
+        self,
+        codes: Sequence[GstCode],
+    ) -> list[GstCode]:
+        saved: list[GstCode] = []
+
+        for code in codes:
+            copied = copy.deepcopy(code)
+            self._codes[copied.id] = copied
+            saved.append(copied)
+
+        return copy.deepcopy(saved)
+
+    async def add_transactions(
+        self,
+        transactions: Sequence[GstTransaction],
+    ) -> list[GstTransaction]:
+        saved = [
+            copy.deepcopy(transaction)
+            for transaction in transactions
+        ]
+        self._transactions.extend(saved)
+        return copy.deepcopy(saved)
+
+    async def list_transactions_by_period(
+        self,
+        tenant_id: UUID,
+        reporting_period: str,
+    ) -> list[GstTransaction]:
+        return [
+            copy.deepcopy(transaction)
+            for transaction in self._transactions
+            if transaction.tenant_id == tenant_id
+            and transaction.reporting_period == reporting_period
+        ]    
 
 
 @pytest.fixture
@@ -279,6 +363,7 @@ def service(
     invoices: FakeInvoiceRepository,
     customers: FakeCustomerRepository,
     accounts: FakeAccountReader,
+    gst: FakeGstRepository,
     ledger: FakeLedgerPoster,
     settings: ArApSettings,
 ) -> InvoiceService:
@@ -286,6 +371,7 @@ def service(
         invoices=invoices,
         customers=customers,
         accounts=accounts,
+        gst=gst,
         ledger=ledger,
         settings=settings,
     )
@@ -618,6 +704,7 @@ def bill_service(
     bills: FakeBillRepository,
     vendors: FakeVendorRepository,
     accounts: FakeAccountReader,
+    gst: FakeGstRepository,
     ledger: FakeLedgerPoster,
     settings: ArApSettings,
 ) -> BillService:
@@ -625,6 +712,7 @@ def bill_service(
         bills=bills,
         vendors=vendors,
         accounts=accounts,
+        gst=gst,
         ledger=ledger,
         settings=settings,
     )
@@ -660,6 +748,7 @@ def credit_note_service(
     invoices: FakeInvoiceRepository,
     customers: FakeCustomerRepository,
     accounts: FakeAccountReader,
+    gst: FakeGstRepository,
     ledger: FakeLedgerPoster,
     settings: ArApSettings,
 ) -> CreditNoteService:
@@ -668,6 +757,54 @@ def credit_note_service(
         invoices=invoices,
         customers=customers,
         accounts=accounts,
+        gst=gst,
         ledger=ledger,
         settings=settings,
     )
+
+
+@pytest.fixture
+def gst() -> FakeGstRepository:
+    repository = FakeGstRepository()
+
+    codes = [
+        GstCode(
+            id=GST_OUTPUT_CODE_ID,
+            tenant_id=TENANT_A,
+            code="SR-OUTPUT",
+            rate=Decimal("0.09"),
+            gst_kind=GstKind.OUTPUT,
+            is_active=True,
+        ),
+        GstCode(
+            id=GST_INPUT_CODE_ID,
+            tenant_id=TENANT_A,
+            code="SR-INPUT",
+            rate=Decimal("0.09"),
+            gst_kind=GstKind.INPUT,
+            is_active=True,
+        ),
+        GstCode(
+            id=GST_ZERO_RATED_CODE_ID,
+            tenant_id=TENANT_A,
+            code="ZERO",
+            rate=Decimal("0"),
+            gst_kind=GstKind.ZERO_RATED,
+            is_active=True,
+        ),
+        GstCode(
+            id=GST_EXEMPT_CODE_ID,
+            tenant_id=TENANT_A,
+            code="EXEMPT",
+            rate=Decimal("0"),
+            gst_kind=GstKind.EXEMPT,
+            is_active=True,
+        ),
+    ]
+
+    repository._codes = {
+        code.id: code
+        for code in codes
+    }
+
+    return repository

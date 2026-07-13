@@ -26,6 +26,7 @@ TENANT_ID = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
 INVOICE_ID = uuid.UUID("00000000-0000-0000-0000-0000000000f1")
 CUSTOMER_ID = uuid.UUID("00000000-0000-0000-0000-0000000000c1")
 REVENUE_ID = uuid.UUID("44444444-4444-4444-4444-444444444444")
+GST_OUTPUT_CODE_ID = uuid.UUID("88888888-8888-8888-8888-888888888881")
 
 
 def _bearer(uid: uuid.UUID) -> dict[str, str]:
@@ -50,6 +51,7 @@ def _credit_note_body() -> dict:
                 "quantity": "1",
                 "unit_price": "100.00",
                 "description": "Credit for consulting service",
+                "gst_code_id": str(GST_OUTPUT_CODE_ID),
                 "gst_rate": "0.09",
             }
         ],
@@ -78,7 +80,9 @@ class _StubCreditNoteService:
                     quantity=line.quantity,
                     unit_price=line.unit_price,
                     description=line.description,
+                    gst_code_id=line.gst_code_id,
                     gst_rate=line.gst_rate,
+                    invoice_line_id=line.invoice_line_id,
                     line_total=Decimal("100.00"),
                     gst_amount=Decimal("9.00"),
                 )
@@ -174,3 +178,4 @@ async def test_authorized_user_can_issue_credit_note(
     assert body["gst_amount"] == "9.00"
     assert body["journal_entry_id"] == "je-credit-note-1"
     assert body["invoice_id"] == str(INVOICE_ID)
+    assert body["lines"][0]["gst_code_id"] == str(GST_OUTPUT_CODE_ID)

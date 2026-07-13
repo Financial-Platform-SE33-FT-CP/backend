@@ -14,6 +14,8 @@ from ar_ap_service.modules.ar_ap.domain.entities import (
     BillPayment,
     CreditNote,
     Customer,
+    GstCode,
+    GstTransaction,
     Invoice,
     JournalLineInput,
     Payment,
@@ -227,6 +229,49 @@ class BillPaymentRepository(ABC):
 
     @abstractmethod
     async def get_by_idempotency_key(self, tenant_id: UUID, key: str) -> BillPayment | None: ...
+
+
+class GstRepository(ABC):
+    """Persistence port for tenant GST codes and GST reporting transactions."""
+
+    @abstractmethod
+    async def get_code_by_id(
+        self,
+        tenant_id: UUID,
+        gst_code_id: UUID,
+    ) -> GstCode | None:
+        """Return a tenant-scoped GST code, or ``None`` when it does not exist."""
+
+    @abstractmethod
+    async def list_codes(
+        self,
+        tenant_id: UUID,
+        *,
+        active_only: bool = True,
+    ) -> list[GstCode]:
+        """List GST codes belonging to a tenant."""
+
+    @abstractmethod
+    async def add_codes(
+        self,
+        codes: Sequence[GstCode],
+    ) -> list[GstCode]:
+        """Persist tenant-scoped GST codes and return the saved codes."""
+
+    @abstractmethod
+    async def add_transactions(
+        self,
+        transactions: Sequence[GstTransaction],
+    ) -> list[GstTransaction]:
+        """Persist GST transactions produced by a posted financial document."""
+
+    @abstractmethod
+    async def list_transactions_by_period(
+        self,
+        tenant_id: UUID,
+        reporting_period: str,
+    ) -> list[GstTransaction]:
+        """Return a tenant's GST transactions for one reporting period."""
 
 
 class AccountReader(ABC):

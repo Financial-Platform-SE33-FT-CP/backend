@@ -11,15 +11,18 @@ import pytest
 from accounting_shared.exceptions import ConflictError, NotFoundError, ValidationError
 from ar_ap_service.modules.ar_ap.application.dto import BillLineInput, CreateBillCommand
 from ar_ap_service.modules.ar_ap.application.services import BillService
-from ar_ap_service.modules.ar_ap.domain.entities import Bill, BillStatus, Vendor
+from ar_ap_service.modules.ar_ap.domain.entities import Bill, BillStatus, GstSourceType, Vendor
 
 from .conftest import (
     AP_ACCOUNT_ID,
     EXPENSE_ACCOUNT_ID,
     GST_INPUT_ACCOUNT_ID,
+    GST_INPUT_CODE_ID,
+    GST_OUTPUT_CODE_ID,
     TENANT_A,
     TENANT_B,
     FakeBillRepository,
+    FakeGstRepository,
     FakeLedgerPoster,
 )
 
@@ -29,12 +32,19 @@ USER_ID = uuid4()
 
 
 def _line(**kwargs) -> BillLineInput:
+    gst_rate = kwargs.pop("gst_rate", Decimal("0.09"))
+    gst_code_id = kwargs.pop(
+        "gst_code_id",
+        GST_INPUT_CODE_ID if gst_rate > Decimal("0") else None,
+    )
+    
     return BillLineInput(
         account_id=kwargs.pop("account_id", EXPENSE_ACCOUNT_ID),
         quantity=kwargs.pop("quantity", Decimal("1")),
         unit_price=kwargs.pop("unit_price", Decimal("100")),
         description=kwargs.pop("description", "Office supplies"),
-        gst_rate=kwargs.pop("gst_rate", Decimal("0.09")),
+        gst_code_id=gst_code_id,
+        gst_rate=gst_rate,
     )
 
 
@@ -108,6 +118,43 @@ async def test_record_bill_debits_expense_gst_credits_ap(
 
 
 @pytest.mark.asyncio
+async def test_record_bill_records_input_gst_transaction(
+    bill_service: BillService,
+    vendor_a: Vendor,
+    gst: FakeGstRepository,
+) -> None:
+    draft = await bill_service.create_draft(
+        TENANT_A,
+        _create_command(vendor_a.id),
+        USER_ID,
+    )
+
+    recorded = await bill_service.record_bill(
+        TENANT_A,
+        draft.id,
+        USER_ID,
+    )
+
+    transactions = await gst.list_transactions_by_period(
+        TENANT_A,
+        "2026-Q2",
+    )
+
+    assert len(transactions) == 1
+
+    transaction = transactions[0]
+
+    assert transaction.tenant_id == TENANT_A
+    assert transaction.source_type is GstSourceType.BILL
+    assert transaction.source_id == recorded.id
+    assert transaction.gst_code_id == GST_INPUT_CODE_ID
+    assert transaction.taxable_amount == Decimal("100.00")
+    assert transaction.gst_amount == Decimal("9.00")
+    assert transaction.reporting_period == "2026-Q2"
+    assert transaction.transaction_date == BILL_DATE
+
+
+@pytest.mark.asyncio
 async def test_cannot_record_bill_twice(
     bill_service: BillService,
     vendor_a: Vendor,
@@ -124,6 +171,34 @@ async def test_missing_vendor_rejected(
 ) -> None:
     with pytest.raises(ValidationError, match="Vendor not found"):
         await bill_service.create_draft(TENANT_A, _create_command(uuid4()), USER_ID)
+
+
+@pytest.mark.asyncio
+async def test_output_gst_code_rejected_for_bill(
+    bill_service: BillService,
+    vendor_a: Vendor,
+) -> None:
+    command = CreateBillCommand(
+        vendor_id=vendor_a.id,
+        issue_date=BILL_DATE,
+        due_date=DUE_DATE,
+        lines=[
+            _line(
+                gst_code_id=GST_OUTPUT_CODE_ID,
+                gst_rate=Decimal("0.09"),
+            )
+        ],
+    )
+
+    with pytest.raises(
+        ValidationError,
+        match="cannot be used on a bill",
+    ):
+        await bill_service.create_draft(
+            TENANT_A,
+            command,
+            USER_ID,
+        )
 
 
 @pytest.mark.asyncio

@@ -4,7 +4,7 @@ from __future__ import annotations
 
 from datetime import date, datetime
 from decimal import Decimal
-from uuid import UUID
+from uuid import UUID, uuid4
 
 from accounting_shared.exceptions import (
     ConflictError,
@@ -36,6 +36,11 @@ from ar_ap_service.modules.ar_ap.domain.entities import (
     CreditNoteLine,
     CreditNoteStatus,
     Customer,
+    GstKind,
+    GstSourceType,
+    GstTransaction,
+    GstCode,
+    GstSummary,
     Invoice,
     InvoiceLine,
     InvoiceSettlement,
@@ -50,10 +55,14 @@ from ar_ap_service.modules.ar_ap.domain.repository import (
     BillRepository,
     CreditNoteRepository,
     CustomerRepository,
+    GstRepository,
     InvoiceRepository,
     LedgerPoster,
     PaymentRepository,
     VendorRepository,
+)
+from ar_ap_service.modules.ar_ap.application.gst_csv_export import (
+    generate_gst_summary_csv,
 )
 
 _ZERO = Decimal("0.00")
@@ -69,7 +78,27 @@ _PAYABLE_STATUSES: frozenset[InvoiceStatus] = frozenset(
 _CREDITABLE_STATUSES: frozenset[InvoiceStatus] = frozenset(
     {InvoiceStatus.ISSUED, InvoiceStatus.PARTIAL, InvoiceStatus.PAID, InvoiceStatus.OVERDUE}
 )
+_INVOICE_GST_KINDS: frozenset[GstKind] = frozenset(
+    {
+        GstKind.OUTPUT,
+        GstKind.ZERO_RATED,
+        GstKind.EXEMPT,
+    }
+)
+_BILL_GST_KINDS: frozenset[GstKind] = frozenset(
+    {
+        GstKind.INPUT,
+        GstKind.ZERO_RATED,
+        GstKind.EXEMPT,
+    }
+)
 _PAYABLE_BILL_STATUSES: frozenset[BillStatus] = frozenset({BillStatus.OPEN, BillStatus.PARTIAL})
+
+
+def _gst_reporting_period(transaction_date: date) -> str:
+    """Return the internal quarterly GST reporting-period identifier."""
+    quarter = ((transaction_date.month - 1) // 3) + 1
+    return f"{transaction_date.year}-Q{quarter}"
 
 
 class InvoiceService:
@@ -86,12 +115,14 @@ class InvoiceService:
         invoices: InvoiceRepository,
         customers: CustomerRepository,
         accounts: AccountReader,
+        gst: GstRepository,
         ledger: LedgerPoster,
         settings: ArApSettings,
     ) -> None:
         self._invoices = invoices
         self._customers = customers
         self._accounts = accounts
+        self._gst = gst
         self._ledger = ledger
         self._settings = settings
 
@@ -275,6 +306,8 @@ class InvoiceService:
         invoice.status = InvoiceStatus.ISSUED
         invoice.journal_entry_id = journal_entry_id
         invoice.updated_at = datetime.utcnow()
+        gst_transactions = self._build_gst_transactions(invoice)
+        await self._gst.add_transactions(gst_transactions)
         return await self._invoices.update(invoice)
 
     # ── helpers ──────────────────────────────────────────────────────────────
@@ -314,11 +347,35 @@ class InvoiceService:
                     f"Account {account.code} is not a revenue account; "
                     "invoice lines must post to revenue accounts."
                 )
+            gst_rate = raw.gst_rate
+            if raw.gst_code_id is not None:
+                gst_code = await self._gst.get_code_by_id(
+                    tenant_id,
+                    raw.gst_code_id,
+                )
+                if gst_code is None:
+                    raise ValidationError(
+                        f"GST code {raw.gst_code_id} not found for this tenant."
+                    )
+                if not gst_code.is_active:
+                    raise ValidationError(
+                        f"GST code {gst_code.code} is not active."
+                    )
+                if gst_code.gst_kind not in _INVOICE_GST_KINDS:
+                    raise ValidationError(
+                        f"GST code {gst_code.code} cannot be used on an invoice."
+                    )
+                # When a GST code is supplied, its configured rate is authoritative.
+                gst_rate = gst_code.rate
+            if gst_rate < 0:
+                raise ValidationError("Line GST rate must not be negative.")
+
             line = InvoiceLine(
                 account_id=raw.account_id,
                 quantity=raw.quantity,
                 unit_price=raw.unit_price,
                 description=raw.description,
+                gst_code_id=raw.gst_code_id,
                 gst_rate=raw.gst_rate,
             )
             line.recalculate()
@@ -413,6 +470,50 @@ class InvoiceService:
                 f"Journal entry is not balanced: debit {total_debit}, credit {total_credit}."
             )
         return lines
+
+
+    def _build_gst_transactions(
+    self,
+    invoice: Invoice,
+) -> list[GstTransaction]:
+        """Aggregate invoice lines into one GST transaction per GST code."""
+        if invoice.issue_date is None:
+            raise ValidationError(
+                "Invoice issue date is required for GST reporting."
+            )
+        grouped: dict[UUID, tuple[Decimal, Decimal]] = {}
+        for line in invoice.lines:
+            if line.gst_code_id is None:
+                # A line without a GST code is treated as a non-GST line. However,
+                # taxable GST must never be reported without an identifiable code.
+                if line.gst_rate > _ZERO or line.gst_amount > _ZERO:
+                    raise ValidationError(
+                        "GST code is required for an invoice line with GST."
+                    )
+                continue
+            taxable_amount, gst_amount = grouped.get(
+                line.gst_code_id,
+                (_ZERO, _ZERO),
+            )
+            grouped[line.gst_code_id] = (
+                taxable_amount + line.line_total,
+                gst_amount + line.gst_amount,
+            )
+        reporting_period = _gst_reporting_period(invoice.issue_date)
+        return [
+            GstTransaction(
+                tenant_id=invoice.tenant_id,
+                source_type=GstSourceType.INVOICE,
+                source_id=invoice.id,
+                gst_code_id=gst_code_id,
+                taxable_amount=taxable_amount,
+                gst_amount=gst_amount,
+                reporting_period=reporting_period,
+                transaction_date=invoice.issue_date,
+            )
+            for gst_code_id, (taxable_amount, gst_amount) in grouped.items()
+        ]
+
 
     async def _generate_invoice_number(self, tenant_id: UUID, issue_date: date) -> str:
         prefix = f"INV-{issue_date.year}-"
@@ -651,6 +752,7 @@ class CreditNoteService:
         invoices: InvoiceRepository,
         customers: CustomerRepository,
         accounts: AccountReader,
+        gst: GstRepository,
         ledger: LedgerPoster,
         settings: ArApSettings,
     ) -> None:
@@ -658,6 +760,7 @@ class CreditNoteService:
         self._invoices = invoices
         self._customers = customers
         self._accounts = accounts
+        self._gst = gst
         self._ledger = ledger
         self._settings = settings
 
@@ -799,6 +902,11 @@ class CreditNoteService:
             reversed_entry_id=invoice.journal_entry_id,
         )
         credit_note.journal_entry_id = journal_entry_id
+        
+        saved_credit_note = await self._credit_notes.add(credit_note)
+
+        gst_transactions = self._build_gst_transactions(saved_credit_note)
+        await self._gst.add_transactions(gst_transactions)
 
         return await self._credit_notes.add(credit_note)
 
@@ -839,11 +947,35 @@ class CreditNoteService:
                         "credit note lines must post to revenue accounts."
                     )
                 revenue_accounts[raw.account_id] = account
+            gst_rate = raw.gst_rate
+            if raw.gst_code_id is not None:
+                gst_code = await self._gst.get_code_by_id(
+                    tenant_id,
+                    raw.gst_code_id,
+                )
+                if gst_code is None:
+                    raise ValidationError(
+                        f"GST code {raw.gst_code_id} not found for this tenant."
+                    )
+                if not gst_code.is_active:
+                    raise ValidationError(
+                        f"GST code {gst_code.code} is not active."
+                    )
+                if gst_code.gst_kind not in _INVOICE_GST_KINDS:
+                    raise ValidationError(
+                        f"GST code {gst_code.code} cannot be used on a credit note."
+                    )
+                # Credit notes reverse invoice GST, so the configured code rate
+                # remains authoritative.
+                gst_rate = gst_code.rate
+            if gst_rate < 0:
+                raise ValidationError("Line GST rate must not be negative.")
             line = CreditNoteLine(
                 account_id=raw.account_id,
                 quantity=raw.quantity,
                 unit_price=raw.unit_price,
                 description=raw.description,
+                gst_code_id=raw.gst_code_id,
                 gst_rate=raw.gst_rate,
                 invoice_line_id=raw.invoice_line_id,
             )
@@ -925,6 +1057,46 @@ class CreditNoteService:
                 f"Journal entry is not balanced: debit {total_debit}, credit {total_credit}."
             )
         return lines
+    
+    def _build_gst_transactions(
+        self,
+        credit_note: CreditNote,
+    ) -> list[GstTransaction]:
+        """Build negative GST transactions for a credit-note reversal."""
+        if credit_note.issue_date is None:
+            raise ValidationError(
+                "Credit note issue date is required for GST reporting."
+            )
+        grouped: dict[UUID, tuple[Decimal, Decimal]] = {}
+        for line in credit_note.lines:
+            if line.gst_code_id is None:
+                if line.gst_rate > _ZERO or line.gst_amount > _ZERO:
+                    raise ValidationError(
+                        "GST code is required for a credit note line with GST."
+                    )
+                continue
+            taxable_amount, gst_amount = grouped.get(
+                line.gst_code_id,
+                (_ZERO, _ZERO),
+            )
+            grouped[line.gst_code_id] = (
+                taxable_amount + line.line_total,
+                gst_amount + line.gst_amount,
+            )
+        reporting_period = _gst_reporting_period(credit_note.issue_date)
+        return [
+            GstTransaction(
+                tenant_id=credit_note.tenant_id,
+                source_type=GstSourceType.CREDIT_NOTE,
+                source_id=credit_note.id,
+                gst_code_id=gst_code_id,
+                taxable_amount=-taxable_amount,
+                gst_amount=-gst_amount,
+                reporting_period=reporting_period,
+                transaction_date=credit_note.issue_date,
+            )
+            for gst_code_id, (taxable_amount, gst_amount) in grouped.items()
+        ]
 
     async def _generate_credit_note_number(self, tenant_id: UUID, issue_date: date) -> str:
         prefix = f"CN-{issue_date.year}-"
@@ -946,12 +1118,14 @@ class BillService:
         bills: BillRepository,
         vendors: VendorRepository,
         accounts: AccountReader,
+        gst: GstRepository,
         ledger: LedgerPoster,
         settings: ArApSettings,
     ) -> None:
         self._bills = bills
         self._vendors = vendors
         self._accounts = accounts
+        self._gst = gst
         self._ledger = ledger
         self._settings = settings
 
@@ -1093,6 +1267,8 @@ class BillService:
         bill.status = BillStatus.OPEN
         bill.journal_entry_id = journal_entry_id
         bill.updated_at = datetime.utcnow()
+        gst_transactions = self._build_gst_transactions(bill)
+        await self._gst.add_transactions(gst_transactions)
         return await self._bills.update(bill)
 
     @staticmethod
@@ -1128,11 +1304,34 @@ class BillService:
                     f"Account {account.code} is not an expense account; "
                     "bill lines must post to expense accounts."
                 )
+            gst_rate = raw.gst_rate
+            if raw.gst_code_id is not None:
+                gst_code = await self._gst.get_code_by_id(
+                    tenant_id,
+                    raw.gst_code_id,
+                )
+                if gst_code is None:
+                    raise ValidationError(
+                        f"GST code {raw.gst_code_id} not found for this tenant."
+                    )
+                if not gst_code.is_active:
+                    raise ValidationError(
+                        f"GST code {gst_code.code} is not active."
+                    )
+                if gst_code.gst_kind not in _BILL_GST_KINDS:
+                    raise ValidationError(
+                        f"GST code {gst_code.code} cannot be used on a bill."
+                    )
+                # The configured GST code rate is authoritative.
+                gst_rate = gst_code.rate
+            if gst_rate < 0:
+                raise ValidationError("Line GST rate must not be negative.")
             line = BillLine(
                 account_id=raw.account_id,
                 quantity=raw.quantity,
                 unit_price=raw.unit_price,
                 description=raw.description,
+                gst_code_id=raw.gst_code_id,
                 gst_rate=raw.gst_rate,
             )
             line.recalculate()
@@ -1220,6 +1419,46 @@ class BillService:
                 f"Journal entry is not balanced: debit {total_debit}, credit {total_credit}."
             )
         return lines
+    
+    def _build_gst_transactions(
+        self,
+        bill: Bill,
+    ) -> list[GstTransaction]:
+        """Aggregate bill lines into one GST transaction per GST code."""
+        if bill.issue_date is None:
+            raise ValidationError(
+                "Bill issue date is required for GST reporting."
+            )
+        grouped: dict[UUID, tuple[Decimal, Decimal]] = {}
+        for line in bill.lines:
+            if line.gst_code_id is None:
+                if line.gst_rate > _ZERO or line.gst_amount > _ZERO:
+                    raise ValidationError(
+                        "GST code is required for a bill line with GST."
+                    )
+                continue
+            taxable_amount, gst_amount = grouped.get(
+                line.gst_code_id,
+                (_ZERO, _ZERO),
+            )
+            grouped[line.gst_code_id] = (
+                taxable_amount + line.line_total,
+                gst_amount + line.gst_amount,
+            )
+        reporting_period = _gst_reporting_period(bill.issue_date)
+        return [
+            GstTransaction(
+                tenant_id=bill.tenant_id,
+                source_type=GstSourceType.BILL,
+                source_id=bill.id,
+                gst_code_id=gst_code_id,
+                taxable_amount=taxable_amount,
+                gst_amount=gst_amount,
+                reporting_period=reporting_period,
+                transaction_date=bill.issue_date,
+            )
+            for gst_code_id, (taxable_amount, gst_amount) in grouped.items()
+        ]
 
     async def _generate_bill_number(self, tenant_id: UUID, issue_date: date) -> str:
         prefix = f"BILL-{issue_date.year}-"
@@ -1446,3 +1685,178 @@ class BillPaymentService:
         if payment_reference:
             return f"BILL-PAY {bill_ref} / {payment_reference}"
         return f"BILL-PAY {bill_ref}"
+
+class GstService:
+    """Provides tenant-scoped GST codes and reporting-period summaries."""
+
+    def __init__(
+        self,
+        *,
+        gst: GstRepository,
+    ) -> None:
+        self._gst = gst
+
+    async def list_codes(
+        self,
+        tenant_id: UUID,
+        *,
+        active_only: bool = True,
+    ) -> list[GstCode]:
+        """Return GST codes belonging to the current tenant."""
+        return await self._gst.list_codes(
+            tenant_id,
+            active_only=active_only,
+        )
+    
+    async def ensure_default_codes(
+        self,
+        tenant_id: UUID,
+    ) -> list[GstCode]:
+        """Create any missing default GST codes for a tenant."""
+
+        existing_codes = await self._gst.list_codes(
+            tenant_id,
+            active_only=False,
+        )
+        existing_names = {
+            code.code.strip().upper()
+            for code in existing_codes
+        }
+
+        defaults: tuple[tuple[str, Decimal, GstKind], ...] = (
+            (
+                "SR-OUTPUT",
+                Decimal("0.09"),
+                GstKind.OUTPUT,
+            ),
+            (
+                "SR-INPUT",
+                Decimal("0.09"),
+                GstKind.INPUT,
+            ),
+            (
+                "ZERO",
+                Decimal("0.00"),
+                GstKind.ZERO_RATED,
+            ),
+            (
+                "EXEMPT",
+                Decimal("0.00"),
+                GstKind.EXEMPT,
+            ),
+        )
+
+        missing_codes = [
+            GstCode(
+                id=uuid4(),
+                tenant_id=tenant_id,
+                code=code,
+                rate=rate,
+                gst_kind=gst_kind,
+                is_active=True,
+            )
+            for code, rate, gst_kind in defaults
+            if code.upper() not in existing_names
+        ]
+
+        if missing_codes:
+            await self._gst.add_codes(missing_codes)
+
+        return await self._gst.list_codes(
+            tenant_id,
+            active_only=False,
+        )
+
+    async def get_summary(
+        self,
+        tenant_id: UUID,
+        reporting_period: str,
+    ) -> GstSummary:
+        """Aggregate GST transactions for one internal reporting period."""
+        period = reporting_period.strip()
+
+        if not period:
+            raise ValidationError("Reporting period is required.")
+
+        transactions = await self._gst.list_transactions_by_period(
+            tenant_id,
+            period,
+        )
+
+        codes = await self._gst.list_codes(
+            tenant_id,
+            active_only=False,
+        )
+        codes_by_id = {code.id: code for code in codes}
+
+        output_tax = _ZERO
+        input_tax = _ZERO
+        zero_rated_supplies = _ZERO
+        exempt_supplies = _ZERO
+
+        for transaction in transactions:
+            gst_code = codes_by_id.get(transaction.gst_code_id)
+
+            if gst_code is None:
+                raise ValidationError(
+                    f"GST code {transaction.gst_code_id} referenced by a "
+                    "GST transaction could not be found."
+                )
+
+            if gst_code.gst_kind == GstKind.OUTPUT:
+                output_tax += transaction.gst_amount
+
+            elif gst_code.gst_kind == GstKind.INPUT:
+                input_tax += transaction.gst_amount
+
+            elif gst_code.gst_kind == GstKind.ZERO_RATED:
+                # Only sales and their credit-note reversals count as supplies.
+                if transaction.source_type in {
+                    GstSourceType.INVOICE,
+                    GstSourceType.CREDIT_NOTE,
+                }:
+                    zero_rated_supplies += transaction.taxable_amount
+
+            elif gst_code.gst_kind == GstKind.EXEMPT:
+                # Bill purchases are not included in exempt sales supplies.
+                if transaction.source_type in {
+                    GstSourceType.INVOICE,
+                    GstSourceType.CREDIT_NOTE,
+                }:
+                    exempt_supplies += transaction.taxable_amount
+
+        return GstSummary(
+            reporting_period=period,
+            output_tax=output_tax.quantize(Decimal("0.01")),
+            input_tax=input_tax.quantize(Decimal("0.01")),
+            zero_rated_supplies=zero_rated_supplies.quantize(
+                Decimal("0.01")
+            ),
+            exempt_supplies=exempt_supplies.quantize(
+                Decimal("0.01")
+            ),
+        )
+    
+    async def build_summary_csv(
+        self,
+        tenant_id: UUID,
+        reporting_period: str,
+    ) -> tuple[bytes, str]:
+        """Generate a GST summary CSV and its download filename."""
+        summary = await self.get_summary(
+            tenant_id,
+            reporting_period,
+        )
+
+        csv_bytes = generate_gst_summary_csv(summary)
+
+        safe_period = "".join(
+            character
+            for character in summary.reporting_period
+            if character.isalnum() or character in {"-", "_"}
+        )
+        if not safe_period:
+            safe_period = "report"
+
+        filename = f"gst-summary-{safe_period}.csv"
+        return csv_bytes, filename

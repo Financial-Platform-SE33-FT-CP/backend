@@ -17,6 +17,67 @@ def _money(value: Decimal) -> Decimal:
     return value.quantize(_TWO_PLACES, rounding=ROUND_HALF_UP)
 
 
+class GstKind(StrEnum):
+    """Classification of a tenant GST code."""
+
+    OUTPUT = "output"
+    INPUT = "input"
+    ZERO_RATED = "zero_rated"
+    EXEMPT = "exempt"
+
+
+class GstSourceType(StrEnum):
+    """Financial document that produced a GST transaction."""
+
+    INVOICE = "invoice"
+    BILL = "bill"
+    CREDIT_NOTE = "credit_note"
+
+
+@dataclass(frozen=True)
+class GstCode:
+    """A tenant-scoped GST code used by financial document lines."""
+
+    id: UUID
+    tenant_id: UUID
+    code: str
+    rate: Decimal
+    gst_kind: GstKind
+    is_active: bool = True
+
+
+@dataclass
+class GstTransaction:
+    """GST reporting record produced when a financial document is posted."""
+
+    tenant_id: UUID
+    source_type: GstSourceType
+    source_id: UUID
+    gst_code_id: UUID
+    taxable_amount: Decimal
+    gst_amount: Decimal
+    reporting_period: str
+    transaction_date: date
+    id: UUID = field(default_factory=uuid4)
+    created_at: datetime = field(default_factory=datetime.utcnow)
+
+
+@dataclass(frozen=True)
+class GstSummary:
+    """Aggregated GST amounts for one reporting period."""
+
+    reporting_period: str
+    output_tax: Decimal = _ZERO
+    input_tax: Decimal = _ZERO
+    zero_rated_supplies: Decimal = _ZERO
+    exempt_supplies: Decimal = _ZERO
+
+    @property
+    def net_gst_payable(self) -> Decimal:
+        """GST payable to IRAS; a negative value represents a refundable amount."""
+        return _money(self.output_tax - self.input_tax)
+
+
 class InvoiceStatus(StrEnum):
     """Lifecycle of a customer invoice."""
 
@@ -50,6 +111,7 @@ class InvoiceLine:
     quantity: Decimal
     unit_price: Decimal
     description: str | None = None
+    gst_code_id: UUID | None = None
     gst_rate: Decimal = _ZERO
     id: UUID = field(default_factory=uuid4)
     invoice_id: UUID | None = None
@@ -205,6 +267,7 @@ class CreditNoteLine:
     quantity: Decimal
     unit_price: Decimal
     description: str | None = None
+    gst_code_id: UUID | None = None
     gst_rate: Decimal = _ZERO
     invoice_line_id: UUID | None = None
     id: UUID = field(default_factory=uuid4)
@@ -287,6 +350,7 @@ class BillLine:
     quantity: Decimal
     unit_price: Decimal
     description: str | None = None
+    gst_code_id: UUID | None = None
     gst_rate: Decimal = _ZERO
     id: UUID = field(default_factory=uuid4)
     bill_id: UUID | None = None
