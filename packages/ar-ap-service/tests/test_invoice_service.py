@@ -245,7 +245,7 @@ async def test_list_is_scoped_to_tenant(
     service: InvoiceService, customer_a: Customer, customer_b: Customer
 ) -> None:
     await service.create_draft(TENANT_A, _command(customer_a.id), USER_ID)
-    await service.create_draft(TENANT_B, _command(customer_b.id), USER_ID)
+    await service.create_draft(TENANT_B, _command(customer_b.id, gst_rate="0"), USER_ID)
 
     assert len(await service.list_invoices(TENANT_A)) == 1
     assert len(await service.list_invoices(TENANT_B)) == 1
