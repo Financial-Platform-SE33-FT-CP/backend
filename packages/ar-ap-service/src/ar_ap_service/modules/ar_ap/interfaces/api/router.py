@@ -710,10 +710,7 @@ async def list_gst_codes(
         tenant_id,
         active_only=active_only,
     )
-    return [
-        GstCodeResponse.from_entity(code)
-        for code in codes
-    ]
+    return [GstCodeResponse.from_entity(code) for code in codes]
 
 
 @router.post(
@@ -730,10 +727,7 @@ async def initialize_default_gst_codes(
 ) -> list[GstCodeResponse]:
     codes = await service.ensure_default_codes(tenant_id)
 
-    return [
-        GstCodeResponse.from_entity(code)
-        for code in codes
-    ]
+    return [GstCodeResponse.from_entity(code) for code in codes]
 
 
 @router.get(

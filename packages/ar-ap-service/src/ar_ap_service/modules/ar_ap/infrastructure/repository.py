@@ -1149,10 +1149,7 @@ class SqlAlchemyGstRepository(GstRepository):
         )
 
         result = await self._session.execute(stmt)
-        return [
-            _gst_transaction_to_entity(model)
-            for model in result.scalars().all()
-        ]
+        return [_gst_transaction_to_entity(model) for model in result.scalars().all()]
 
 
 class SqlAccountReader(AccountReader):
