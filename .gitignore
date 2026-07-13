@@ -30,3 +30,5 @@ NEON_DATABASE_SETUP.md
 *.xlsx
 *.zip
 *.tar.gz
+*.continue
+*.omp
