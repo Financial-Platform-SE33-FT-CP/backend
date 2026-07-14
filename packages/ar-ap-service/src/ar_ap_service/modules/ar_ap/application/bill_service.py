@@ -62,7 +62,7 @@ class BillService:
         *,
         issue_date: date,
         due_date: date,
-        lines_input: list[dict],
+        lines_input: list[dict[str, object]],
         created_by: UUID | None,
     ) -> Bill:
         self._validate_dates(issue_date, due_date)
@@ -90,7 +90,7 @@ class BillService:
         vendor_id: UUID | None = None,
         issue_date: date | None = None,
         due_date: date | None = None,
-        lines_input: list[dict] | None = None,
+        lines_input: list[dict[str, object]] | None = None,
     ) -> Bill:
         bill = await self._require_draft(tenant_id, bill_id)
         if vendor_id is not None:
@@ -102,7 +102,9 @@ class BillService:
             bill.issue_date = issue_date
         if due_date is not None:
             bill.due_date = due_date
-        if issue_date is not None and bill.due_date is not None:
+        if issue_date is not None:
+            bill.issue_date = issue_date
+        if bill.issue_date is not None and bill.due_date is not None:
             self._validate_dates(bill.issue_date, bill.due_date)
         if lines_input is not None:
             bill.lines = [self._line_from_input(i) for i in lines_input]
@@ -115,12 +117,13 @@ class BillService:
         bill_id: UUID,
         created_by: UUID | None,
     ) -> Bill:
-        """Record/publish a draft bill: post journal entry Dr Expense/GST, Cr AP."""
         bill = await self._require_draft(tenant_id, bill_id)
         await self._validate_accounts(tenant_id, bill)
-
-        if await self._ledger.is_period_closed(tenant_id, bill.issue_date):
-            raise ConflictError(f"Cannot record bill: {bill.issue_date} is in a closed period.")
+        entry_date = bill.issue_date
+        if entry_date is None:
+            raise ValidationError("Bill issue date is required.")
+        if await self._ledger.is_period_closed(tenant_id, entry_date):
+            raise ConflictError(f"Cannot record bill: {entry_date} is in a closed period.")
 
         bill.recalculate_totals()
         ap_account = await self._require_ap_account(tenant_id)
@@ -154,11 +157,10 @@ class BillService:
                 description=f"Bill {bill.bill_number or bill.id}",
             )
         )
-
         bill_number = await self._next_bill_number(tenant_id)
         entry_id = await self._ledger.post_journal_entry(
             tenant_id=tenant_id,
-            entry_date=bill.issue_date,
+            entry_date=entry_date,
             reference=bill_number,
             description=f"Bill {bill_number}",
             source_id=str(bill.id),
@@ -295,10 +297,12 @@ class BillService:
 
     # ── AP aging ──────────────────────────────────────────────────────────────
 
-    async def get_ap_aging(self, tenant_id: UUID, as_of: date | None = None) -> list[dict]:
+    async def get_ap_aging(
+        self, tenant_id: UUID, as_of: date | None = None
+    ) -> list[dict[str, object]]:
         bills = await self._bills.list_by_tenant(tenant_id)
         cutoff = as_of or date.today()
-        rows: list[dict] = []
+        rows: list[dict[str, object]] = []
         for bill in bills:
             if bill.status in (BillStatus.PAID, BillStatus.VOID, BillStatus.DRAFT):
                 continue
@@ -339,14 +343,14 @@ class BillService:
             raise ValidationError("Due date cannot be earlier than issue date.")
 
     @staticmethod
-    def _line_from_input(i: dict) -> BillLine:
-        raw_id = i["account_id"]
-        account_id = raw_id if isinstance(raw_id, UUID) else UUID(raw_id)
+    def _line_from_input(i: dict[str, object]) -> BillLine:
+        raw_id = str(i["account_id"])
+        account_id = UUID(raw_id) if raw_id else UUID(int=0)
         return BillLine(
             account_id=account_id,
             quantity=Decimal(str(i.get("quantity", 1))),
             unit_price=Decimal(str(i.get("unit_price", 0))),
-            description=i.get("description"),
+            description=str(i.get("description")) if i.get("description") else None,
             gst_rate=Decimal(str(i.get("gst_rate", 0))),
         )
 

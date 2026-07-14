@@ -59,6 +59,7 @@ from ar_ap_service.modules.ar_ap.interfaces.api.schemas import (
     APAgingLineResponse,
     BankAccountResponse,
     BankTransactionResponse,
+    BillLineRequest,
     BillLineResponse,
     BillPaymentResponse,
     BillResponse,
@@ -561,7 +562,7 @@ async def reconcile_transaction(
     response_model=BankAccountResponse,
     status_code=status.HTTP_201_CREATED,
 )
-async def create_bank_account(
+async def create_bank_account(  # type: ignore[no-untyped-def]
     body: CreateBankAccountRequest,
     _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_CREATE))],
     tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
@@ -570,7 +571,7 @@ async def create_bank_account(
     account = BankAccount(
         tenant_id=tenant_id,
         name=body.name,
-        account_number=body.account_number,
+        account_number=body.account_number or "",
         currency=body.currency,
         opening_balance=body.opening_balance,
     )
@@ -579,7 +580,7 @@ async def create_bank_account(
 
 
 @router.get("/bank-accounts", response_model=list[BankAccountResponse])
-async def list_bank_accounts(
+async def list_bank_accounts(  # type: ignore[no-untyped-def]
     _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
     tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
     bank_account_repo=Depends(get_bank_account_repository),
@@ -591,7 +592,7 @@ async def list_bank_accounts(
 # ── bills / AP (US-11 / US-12) ────────────────────────────────────────────────
 
 
-def _bill_lines_to_input(lines: list) -> list[dict]:
+def _bill_lines_to_input(lines: list[BillLineRequest]) -> list[dict[str, object]]:
     return [line.model_dump() for line in lines]
 
 
@@ -641,7 +642,7 @@ async def get_ap_aging(
     as_of: date | None = None,
 ) -> list[APAgingLineResponse]:
     rows = await service.get_ap_aging(tenant_id, as_of=as_of)
-    return [APAgingLineResponse(**row) for row in rows]
+    return [APAgingLineResponse(**row) for row in rows]  # type: ignore[arg-type]
 
 
 @router.post("/vendors", response_model=VendorResponse, status_code=status.HTTP_201_CREATED)

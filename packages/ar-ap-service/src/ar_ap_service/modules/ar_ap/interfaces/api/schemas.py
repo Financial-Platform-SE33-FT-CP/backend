@@ -324,10 +324,12 @@ class BankTransactionResponse(BaseModel):
 
     @classmethod
     def from_entity(cls, txn: BankTransaction) -> BankTransactionResponse:
+        ba_id = txn.bank_account_id or UUID("00000000-0000-0000-0000-000000000000")
+        txn_date = txn.transaction_date or date.today()
         return cls(
             id=txn.id,
-            bank_account_id=txn.bank_account_id,
-            transaction_date=txn.transaction_date,
+            bank_account_id=ba_id,
+            transaction_date=txn_date,
             description=txn.description,
             amount=txn.amount,
             matched=txn.matched,

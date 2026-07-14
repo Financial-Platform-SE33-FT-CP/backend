@@ -929,7 +929,7 @@ def _bank_txn_to_entity(model: BankTransactionModel) -> BankTransaction:
         upload_batch_id=model.upload_batch_id,
         reconciliation_entity_type=model.reconciliation_entity_type,
         reconciliation_entity_id=model.reconciliation_entity_id,
-        created_at=_as_utc(model.created_at) if model.created_at else None,
+        created_at=_as_utc(model.created_at) if model.created_at else datetime.now(timezone.utc),  # type: ignore[arg-type]
     )
 
 
@@ -938,7 +938,7 @@ def _bank_account_to_entity(model: BankAccountModel) -> BankAccount:
         id=model.id,
         tenant_id=model.tenant_id,
         name=model.name,
-        account_number=model.account_number,
+        account_number=model.account_number or "",
         currency=model.currency,
         opening_balance=model.opening_balance,
     )
@@ -1059,7 +1059,9 @@ class SqlAlchemyBillRepository(BillRepository):
                 )
             )
         await self._session.flush()
-        reloaded = await self.get_by_id(bill.tenant_id, bill.id)
+        tid = bill.tenant_id
+        assert tid is not None
+        reloaded = await self.get_by_id(tid, bill.id)
         assert reloaded is not None
         return reloaded
 
@@ -1099,7 +1101,9 @@ class SqlAlchemyBillRepository(BillRepository):
                 )
             )
         await self._session.flush()
-        reloaded = await self.get_by_id(bill.tenant_id, bill.id)
+        tid = bill.tenant_id
+        assert tid is not None
+        reloaded = await self.get_by_id(tid, bill.id)
         assert reloaded is not None
         return reloaded
 
@@ -1221,7 +1225,7 @@ def _bill_to_entity(model: BillModel) -> Bill:
         total=model.total or Decimal("0"),
         journal_entry_id=model.journal_entry_id,
         created_by=model.created_by,
-        created_at=_as_utc(model.created_at) if model.created_at else None,
+        created_at=_as_utc(model.created_at) if model.created_at else datetime.now(timezone.utc),  # type: ignore[arg-type]
         updated_at=_as_utc(model.updated_at) if model.updated_at else None,
         lines=[
             BillLine(
@@ -1277,5 +1281,5 @@ def _bill_payment_to_entity(model: BillPaymentModel) -> BillPayment:
         payment_account_id=model.payment_account_id,
         journal_entry_id=model.journal_entry_id,
         created_by=model.created_by,
-        created_at=_as_utc(model.created_at) if model.created_at else None,
+        created_at=_as_utc(model.created_at) if model.created_at else datetime.now(timezone.utc),  # type: ignore[arg-type]
     )

@@ -26,7 +26,7 @@ class Base(DeclarativeBase):
     pass
 
 
-class CustomerModel(Base):  # type: ignore[misc, valid-type]
+class CustomerModel(Base):
     __tablename__ = "customers"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -38,7 +38,7 @@ class CustomerModel(Base):  # type: ignore[misc, valid-type]
     credit_terms_days: Mapped[int | None] = mapped_column(Integer, nullable=True)
 
 
-class VendorModel(Base):  # type: ignore[misc, valid-type]
+class VendorModel(Base):
     __tablename__ = "vendors"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -49,7 +49,7 @@ class VendorModel(Base):  # type: ignore[misc, valid-type]
     email: Mapped[str | None] = mapped_column(String(254), nullable=True)
 
 
-class GstCodeModel(Base):  # type: ignore[misc, valid-type]
+class GstCodeModel(Base):
     __tablename__ = "gst_codes"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -62,7 +62,7 @@ class GstCodeModel(Base):  # type: ignore[misc, valid-type]
     __table_args__ = (UniqueConstraint("tenant_id", "code", name="uq_gst_codes_tenant_code"),)
 
 
-class InvoiceModel(Base):  # type: ignore[misc, valid-type]
+class InvoiceModel(Base):
     __tablename__ = "invoices"
     __table_args__ = (
         UniqueConstraint("tenant_id", "invoice_number", name="uq_invoices_tenant_invoice_number"),
@@ -96,7 +96,7 @@ class InvoiceModel(Base):  # type: ignore[misc, valid-type]
     payments: Mapped[list["PaymentModel"]] = relationship("PaymentModel", back_populates="invoice")
 
 
-class InvoiceLineModel(Base):  # type: ignore[misc, valid-type]
+class InvoiceLineModel(Base):
     __tablename__ = "invoice_lines"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -125,7 +125,7 @@ class InvoiceLineModel(Base):  # type: ignore[misc, valid-type]
     invoice: Mapped["InvoiceModel"] = relationship("InvoiceModel", back_populates="lines")
 
 
-class BillModel(Base):  # type: ignore[misc, valid-type]
+class BillModel(Base):
     __tablename__ = "bills"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -152,7 +152,7 @@ class BillModel(Base):  # type: ignore[misc, valid-type]
     lines: Mapped[list["BillLineModel"]] = relationship("BillLineModel", back_populates="bill")
 
 
-class BillLineModel(Base):  # type: ignore[misc, valid-type]
+class BillLineModel(Base):
     __tablename__ = "bill_lines"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -175,7 +175,7 @@ class BillLineModel(Base):  # type: ignore[misc, valid-type]
     bill: Mapped["BillModel"] = relationship("BillModel", back_populates="lines")
 
 
-class BankAccountModel(Base):  # type: ignore[misc, valid-type]
+class BankAccountModel(Base):
     __tablename__ = "bank_accounts"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -190,7 +190,7 @@ class BankAccountModel(Base):  # type: ignore[misc, valid-type]
     )
 
 
-class BankTransactionModel(Base):  # type: ignore[misc, valid-type]
+class BankTransactionModel(Base):
     __tablename__ = "bank_transactions"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -219,7 +219,7 @@ class BankTransactionModel(Base):  # type: ignore[misc, valid-type]
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 
-class GstTransactionModel(Base):  # type: ignore[misc, valid-type]
+class GstTransactionModel(Base):
     __tablename__ = "gst_transactions"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -236,7 +236,7 @@ class GstTransactionModel(Base):  # type: ignore[misc, valid-type]
     reporting_period: Mapped[str | None] = mapped_column(String(32), nullable=True)
 
 
-class PaymentModel(Base):  # type: ignore[misc, valid-type]
+class PaymentModel(Base):
     __tablename__ = "payments"
     __table_args__ = (
         UniqueConstraint("tenant_id", "idempotency_key", name="uq_payments_tenant_idempotency_key"),
@@ -268,7 +268,7 @@ class PaymentModel(Base):  # type: ignore[misc, valid-type]
     invoice: Mapped["InvoiceModel"] = relationship("InvoiceModel", back_populates="payments")
 
 
-class BillPaymentModel(Base):  # type: ignore[misc, valid-type]
+class BillPaymentModel(Base):
     __tablename__ = "bill_payments"
     __table_args__ = (
         UniqueConstraint(
@@ -299,7 +299,7 @@ class BillPaymentModel(Base):  # type: ignore[misc, valid-type]
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 
-class CreditNoteModel(Base):  # type: ignore[misc, valid-type]
+class CreditNoteModel(Base):
     __tablename__ = "credit_notes"
     __table_args__ = (
         UniqueConstraint(
@@ -344,7 +344,7 @@ class CreditNoteModel(Base):  # type: ignore[misc, valid-type]
     )
 
 
-class CreditNoteLineModel(Base):  # type: ignore[misc, valid-type]
+class CreditNoteLineModel(Base):
     __tablename__ = "credit_note_lines"
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)

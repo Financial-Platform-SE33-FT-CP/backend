@@ -146,6 +146,7 @@ def parse_bank_statement_csv(content: str) -> list[ParsedTransaction]:
     for idx, row in enumerate(rows[1:], start=2):
         try:
             if layout.is_credit_debit:
+                assert layout.debit_col is not None and layout.credit_col is not None
                 raw_debit = row[layout.debit_col] if len(row) > layout.debit_col else ""
                 raw_credit = row[layout.credit_col] if len(row) > layout.credit_col else ""
                 debit_val = _clean_amount(raw_debit)
