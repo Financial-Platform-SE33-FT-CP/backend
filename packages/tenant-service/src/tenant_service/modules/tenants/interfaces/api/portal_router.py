@@ -218,6 +218,8 @@ async def portal_invite_member(
         role=tenant_role_to_frontend_api(normalize_role(result.role)),
         created_at=result.created_at,
     )
+
+
 @router.delete(
     "/{tenant_id}/users/{member_user_id}",
     status_code=status.HTTP_204_NO_CONTENT,
@@ -251,6 +253,7 @@ async def portal_update_member_role(
     _: object = Depends(RequireTenantPermissions(P_TENANT_MEMBER_ROLE_UPDATE)),
 ) -> PortalMemberResponseSchema:
     from tenant_service.modules.tenants.application.dto import UpdateMemberRoleRequest
+
     tid = TenantId(tenant_id)
     dto = UpdateMemberRoleRequest(role=body.role)
     sid = str(tenant_id)
@@ -259,7 +262,9 @@ async def portal_update_member_role(
     except BadRequestError as e:
         raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
     except ValidationError as e:
-        raise HTTPException(status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=e.detail) from e
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=e.detail
+        ) from e
     return PortalMemberResponseSchema(
         id=str(member_user_id),
         tenant_id=sid,

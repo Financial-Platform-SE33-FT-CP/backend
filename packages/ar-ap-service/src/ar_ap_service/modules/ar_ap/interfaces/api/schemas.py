@@ -9,6 +9,7 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from ar_ap_service.modules.ar_ap.domain.entities import (
+    BankAccount,
     BankTransaction,
     Bill,
     BillLine,

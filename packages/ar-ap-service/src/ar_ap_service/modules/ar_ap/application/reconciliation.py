@@ -18,6 +18,7 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from accounting_shared.exceptions import NotFoundError, ValidationError
+from ar_ap_service.modules.ar_ap.application.dto import ReconcileTransactionCommand
 
 from ar_ap_service.config import ArApSettings
 from ar_ap_service.modules.ar_ap.application.bank_statement import (
@@ -42,6 +43,7 @@ from ar_ap_service.modules.ar_ap.domain.repository import (
 )
 
 _ZERO = Decimal("0.00")
+
 
 class ReconciliationService:
     """Handles manual bank transaction reconciliation (US-14)."""
@@ -116,30 +118,34 @@ class ReconciliationService:
         for inv in invoices:
             diff = abs_amount - inv.total
             conf = "exact" if diff == _ZERO else "partial"
-            suggestions.append(ReconciliationSuggestion(
-                bank_transaction_id=transaction_id,
-                match_type="invoice",
-                match_id=inv.id,
-                match_label=inv.invoice_number or str(inv.id)[:8],
-                match_amount=inv.total,
-                difference=abs(diff),
-                confidence=conf,
-            ))
+            suggestions.append(
+                ReconciliationSuggestion(
+                    bank_transaction_id=transaction_id,
+                    match_type="invoice",
+                    match_id=inv.id,
+                    match_label=inv.invoice_number or str(inv.id)[:8],
+                    match_amount=inv.total,
+                    difference=abs(diff),
+                    confidence=conf,
+                )
+            )
 
         # Also match against known payments
         payments = await self._payment_repo.list_by_tenant(tenant_id)
         for pmt in payments:
             diff = abs_amount - pmt.amount
             conf = "exact" if diff == _ZERO else "partial"
-            suggestions.append(ReconciliationSuggestion(
-                bank_transaction_id=transaction_id,
-                match_type="payment",
-                match_id=pmt.id,
-                match_label=f"PAY-{str(pmt.id)[:8]}",
-                match_amount=pmt.amount,
-                difference=abs(diff),
-                confidence=conf,
-            ))
+            suggestions.append(
+                ReconciliationSuggestion(
+                    bank_transaction_id=transaction_id,
+                    match_type="payment",
+                    match_id=pmt.id,
+                    match_label=f"PAY-{str(pmt.id)[:8]}",
+                    match_amount=pmt.amount,
+                    difference=abs(diff),
+                    confidence=conf,
+                )
+            )
 
         # Also match against open bills (AP)
         if self._bill_repo is not None:
@@ -148,15 +154,17 @@ class ReconciliationService:
                 if bill.status.value != "draft":
                     diff = abs_amount - bill.total
                     conf = "exact" if diff == _ZERO else "partial"
-                    suggestions.append(ReconciliationSuggestion(
-                        bank_transaction_id=transaction_id,
-                        match_type="bill",
-                        match_id=bill.id,
-                        match_label=bill.bill_number or str(bill.id)[:8],
-                        match_amount=bill.total,
-                        difference=abs(diff),
-                        confidence=conf,
-                    ))
+                    suggestions.append(
+                        ReconciliationSuggestion(
+                            bank_transaction_id=transaction_id,
+                            match_type="bill",
+                            match_id=bill.id,
+                            match_label=bill.bill_number or str(bill.id)[:8],
+                            match_amount=bill.total,
+                            difference=abs(diff),
+                            confidence=conf,
+                        )
+                    )
         # Sort by difference ascending (best match first)
         suggestions.sort(key=lambda s: s.difference)
         return suggestions
@@ -185,8 +193,14 @@ class ReconciliationService:
 
         # Determine the counterparty account for the journal entry
         counterparty_id: str | None = None
-        if command.match_type == "invoice" and self._accounts is not None and self._settings is not None:
-            ar_account = await self._accounts.get_by_code(tenant_id, self._settings.ar_control_account_code)
+        if (
+            command.match_type == "invoice"
+            and self._accounts is not None
+            and self._settings is not None
+        ):
+            ar_account = await self._accounts.get_by_code(
+                tenant_id, self._settings.ar_control_account_code
+            )
             if ar_account is not None:
                 counterparty_id = str(ar_account.id)
             else:
@@ -210,27 +224,35 @@ class ReconciliationService:
         bank_account_id_str = str(command.account_id)
 
         if txn.amount >= _ZERO:
-            lines.append(JournalLineInput(
-                account_id=bank_account_id_str,
-                debit_amount=abs_amount,
-                description=txn.description or "Bank deposit",
-            ))
-            lines.append(JournalLineInput(
-                account_id=counterparty_id,
-                credit_amount=abs_amount,
-                description=f"Matched {command.match_type}",
-            ))
+            lines.append(
+                JournalLineInput(
+                    account_id=bank_account_id_str,
+                    debit_amount=abs_amount,
+                    description=txn.description or "Bank deposit",
+                )
+            )
+            lines.append(
+                JournalLineInput(
+                    account_id=counterparty_id,
+                    credit_amount=abs_amount,
+                    description=f"Matched {command.match_type}",
+                )
+            )
         else:
-            lines.append(JournalLineInput(
-                account_id=bank_account_id_str,
-                credit_amount=abs_amount,
-                description=txn.description or "Bank withdrawal",
-            ))
-            lines.append(JournalLineInput(
-                account_id=counterparty_id,
-                debit_amount=abs_amount,
-                description=f"Matched {command.match_type}",
-            ))
+            lines.append(
+                JournalLineInput(
+                    account_id=bank_account_id_str,
+                    credit_amount=abs_amount,
+                    description=txn.description or "Bank withdrawal",
+                )
+            )
+            lines.append(
+                JournalLineInput(
+                    account_id=counterparty_id,
+                    debit_amount=abs_amount,
+                    description=f"Matched {command.match_type}",
+                )
+            )
 
         entry_id = await self._ledger_poster.post_journal_entry(
             tenant_id=tenant_id,
@@ -255,8 +277,14 @@ class ReconciliationService:
         # so the invoice no longer appears as a matchable candidate.
         if command.match_type == "invoice" and command.match_id is not None and txn.amount > _ZERO:
             invoice = await self._invoice_repo.get_by_id(tenant_id, command.match_id)
-            if invoice is not None and invoice.status in (InvoiceStatus.ISSUED, InvoiceStatus.PARTIAL, InvoiceStatus.OVERDUE):
-                already_paid = await self._payment_repo.sum_paid_for_invoice(tenant_id, command.match_id)
+            if invoice is not None and invoice.status in (
+                InvoiceStatus.ISSUED,
+                InvoiceStatus.PARTIAL,
+                InvoiceStatus.OVERDUE,
+            ):
+                already_paid = await self._payment_repo.sum_paid_for_invoice(
+                    tenant_id, command.match_id
+                )
                 outstanding = invoice.total - already_paid
                 recon_amount = abs(txn.amount)
                 if recon_amount > _ZERO and outstanding > _ZERO:

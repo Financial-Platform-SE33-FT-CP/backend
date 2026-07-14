@@ -10,6 +10,7 @@ so issuing an invoice and posting its journal entry commit atomically.
 from __future__ import annotations
 
 import uuid
+from uuid import UUID
 from collections.abc import Sequence
 from datetime import date, datetime, timezone
 from decimal import Decimal
@@ -959,9 +960,13 @@ class SqlAlchemyBankAccountRepository(BankAccountRepository):
         return _bank_account_to_entity(model) if model else None
 
     async def list_by_tenant(self, tenant_id: UUID) -> list[BankAccount]:
-        stmt = select(BankAccountModel).where(
-            BankAccountModel.tenant_id == tenant_id,
-        ).order_by(BankAccountModel.name)
+        stmt = (
+            select(BankAccountModel)
+            .where(
+                BankAccountModel.tenant_id == tenant_id,
+            )
+            .order_by(BankAccountModel.name)
+        )
         result = await self._session.execute(stmt)
         return [_bank_account_to_entity(m) for m in result.scalars().all()]
 
@@ -984,37 +989,84 @@ class SqlAlchemyBillRepository(BillRepository):
         self._session = session
 
     async def get_by_id(self, tenant_id: uuid.UUID, bill_id: uuid.UUID) -> Bill | None:
-        stmt = select(BillModel).where(BillModel.id == bill_id, BillModel.tenant_id == tenant_id).options(selectinload(BillModel.lines))
+        stmt = (
+            select(BillModel)
+            .where(BillModel.id == bill_id, BillModel.tenant_id == tenant_id)
+            .options(selectinload(BillModel.lines))
+        )
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
         return _bill_to_entity(model) if model else None
 
-    async def list_by_tenant(self, tenant_id: uuid.UUID, *, status: str | None = None, vendor_id: uuid.UUID | None = None, issued_from: date | None = None, issued_to: date | None = None) -> list[Bill]:
-        stmt = select(BillModel).where(BillModel.tenant_id == tenant_id).options(selectinload(BillModel.lines)).order_by(BillModel.created_at.desc())
-        if status: stmt = stmt.where(BillModel.status == status)
-        if vendor_id: stmt = stmt.where(BillModel.vendor_id == vendor_id)
-        if issued_from: stmt = stmt.where(BillModel.issue_date >= issued_from)
-        if issued_to: stmt = stmt.where(BillModel.issue_date <= issued_to)
+    async def list_by_tenant(
+        self,
+        tenant_id: uuid.UUID,
+        *,
+        status: str | None = None,
+        vendor_id: uuid.UUID | None = None,
+        issued_from: date | None = None,
+        issued_to: date | None = None,
+    ) -> list[Bill]:
+        stmt = (
+            select(BillModel)
+            .where(BillModel.tenant_id == tenant_id)
+            .options(selectinload(BillModel.lines))
+            .order_by(BillModel.created_at.desc())
+        )
+        if status:
+            stmt = stmt.where(BillModel.status == status)
+        if vendor_id:
+            stmt = stmt.where(BillModel.vendor_id == vendor_id)
+        if issued_from:
+            stmt = stmt.where(BillModel.issue_date >= issued_from)
+        if issued_to:
+            stmt = stmt.where(BillModel.issue_date <= issued_to)
         result = await self._session.execute(stmt)
         return [_bill_to_entity(m) for m in result.scalars().unique().all()]
 
     async def add(self, bill: Bill) -> Bill:
-        model = BillModel(id=bill.id, tenant_id=bill.tenant_id, vendor_id=bill.vendor_id, bill_number=bill.bill_number, issue_date=bill.issue_date, due_date=bill.due_date, status=bill.status.value if isinstance(bill.status, BillStatus) else bill.status, subtotal=bill.subtotal, gst_amount=bill.gst_amount, total=bill.total, journal_entry_id=bill.journal_entry_id, created_by=bill.created_by, created_at=bill.created_at, updated_at=bill.updated_at)
+        model = BillModel(
+            id=bill.id,
+            tenant_id=bill.tenant_id,
+            vendor_id=bill.vendor_id,
+            bill_number=bill.bill_number,
+            issue_date=bill.issue_date,
+            due_date=bill.due_date,
+            status=bill.status.value if isinstance(bill.status, BillStatus) else bill.status,
+            subtotal=bill.subtotal,
+            gst_amount=bill.gst_amount,
+            total=bill.total,
+            journal_entry_id=bill.journal_entry_id,
+            created_by=bill.created_by,
+            created_at=bill.created_at,
+            updated_at=bill.updated_at,
+        )
         self._session.add(model)
         await self._session.flush()
         for line in bill.lines:
-            self._session.add(BillLineModel(
-                id=line.id, bill_id=bill.id, account_id=line.account_id,
-                description=line.description, quantity=line.quantity, unit_price=line.unit_price,
-                amount=line.line_total, gst_rate=line.gst_rate, line_total=line.line_total, gst_amount=line.gst_amount,
-            ))
+            self._session.add(
+                BillLineModel(
+                    id=line.id,
+                    bill_id=bill.id,
+                    account_id=line.account_id,
+                    description=line.description,
+                    quantity=line.quantity,
+                    unit_price=line.unit_price,
+                    amount=line.line_total,
+                    gst_rate=line.gst_rate,
+                    line_total=line.line_total,
+                    gst_amount=line.gst_amount,
+                )
+            )
         await self._session.flush()
-        reloaded = await self.get_by_id(tenant_id if bill.tenant_id else tenant_id, bill.id)
+        reloaded = await self.get_by_id(bill.tenant_id, bill.id)
         assert reloaded is not None
         return reloaded
 
     async def update(self, bill: Bill) -> Bill:
-        stmt = select(BillModel).where(BillModel.id == bill.id).options(selectinload(BillModel.lines))
+        stmt = (
+            select(BillModel).where(BillModel.id == bill.id).options(selectinload(BillModel.lines))
+        )
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
         if model is None:
@@ -1030,17 +1082,24 @@ class SqlAlchemyBillRepository(BillRepository):
         model.journal_entry_id = bill.journal_entry_id
         model.status = bill.status.value if isinstance(bill.status, BillStatus) else bill.status
         model.updated_at = bill.updated_at
-        await self._session.execute(
-            delete(BillLineModel).where(BillLineModel.bill_id == bill.id)
-        )
+        await self._session.execute(delete(BillLineModel).where(BillLineModel.bill_id == bill.id))
         for line in bill.lines:
-            self._session.add(BillLineModel(
-                id=line.id, bill_id=bill.id, account_id=line.account_id,
-                description=line.description, quantity=line.quantity, unit_price=line.unit_price,
-                amount=line.line_total, gst_rate=line.gst_rate, line_total=line.line_total, gst_amount=line.gst_amount,
-            ))
+            self._session.add(
+                BillLineModel(
+                    id=line.id,
+                    bill_id=bill.id,
+                    account_id=line.account_id,
+                    description=line.description,
+                    quantity=line.quantity,
+                    unit_price=line.unit_price,
+                    amount=line.line_total,
+                    gst_rate=line.gst_rate,
+                    line_total=line.line_total,
+                    gst_amount=line.gst_amount,
+                )
+            )
         await self._session.flush()
-        reloaded = await self.get_by_id(bill.tenant_id or tenant_id, bill.id)
+        reloaded = await self.get_by_id(bill.tenant_id, bill.id)
         assert reloaded is not None
         return reloaded
 
@@ -1051,7 +1110,11 @@ class SqlAlchemyBillRepository(BillRepository):
             await self._session.flush()
 
     async def count_with_number_prefix(self, tenant_id: uuid.UUID, prefix: str) -> int:
-        stmt = select(func.count()).select_from(BillModel).where(BillModel.tenant_id == tenant_id, BillModel.bill_number.like(f"{prefix}%"))
+        stmt = (
+            select(func.count())
+            .select_from(BillModel)
+            .where(BillModel.tenant_id == tenant_id, BillModel.bill_number.like(f"{prefix}%"))
+        )
         result = await self._session.execute(stmt)
         return int(result.scalar_one())
 
@@ -1061,18 +1124,31 @@ class SqlAlchemyVendorRepository(VendorRepository):
         self._session = session
 
     async def get_by_id(self, tenant_id: uuid.UUID, vendor_id: uuid.UUID) -> Vendor | None:
-        stmt = select(VendorModel).where(VendorModel.id == vendor_id, VendorModel.tenant_id == tenant_id)
+        stmt = select(VendorModel).where(
+            VendorModel.id == vendor_id, VendorModel.tenant_id == tenant_id
+        )
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
-        return Vendor(id=model.id, tenant_id=model.tenant_id, name=model.name, email=model.email) if model else None
+        return (
+            Vendor(id=model.id, tenant_id=model.tenant_id, name=model.name, email=model.email)
+            if model
+            else None
+        )
 
     async def list_by_tenant(self, tenant_id: uuid.UUID) -> list[Vendor]:
-        stmt = select(VendorModel).where(VendorModel.tenant_id == tenant_id).order_by(VendorModel.name)
+        stmt = (
+            select(VendorModel).where(VendorModel.tenant_id == tenant_id).order_by(VendorModel.name)
+        )
         result = await self._session.execute(stmt)
-        return [Vendor(id=m.id, tenant_id=m.tenant_id, name=m.name, email=m.email) for m in result.scalars().all()]
+        return [
+            Vendor(id=m.id, tenant_id=m.tenant_id, name=m.name, email=m.email)
+            for m in result.scalars().all()
+        ]
 
     async def add(self, vendor: Vendor) -> Vendor:
-        model = VendorModel(id=vendor.id, tenant_id=vendor.tenant_id, name=vendor.name, email=vendor.email)
+        model = VendorModel(
+            id=vendor.id, tenant_id=vendor.tenant_id, name=vendor.name, email=vendor.email
+        )
         self._session.add(model)
         await self._session.flush()
         return vendor
@@ -1083,23 +1159,44 @@ class SqlAlchemyBillPaymentRepository(BillPaymentRepository):
         self._session = session
 
     async def add(self, payment: BillPayment) -> BillPayment:
-        model = BillPaymentModel(id=payment.id, tenant_id=payment.tenant_id, bill_id=payment.bill_id, vendor_id=payment.vendor_id, amount=payment.amount, payment_date=payment.payment_date, payment_method=payment.payment_method.value if isinstance(payment.payment_method, PaymentMethod) else payment.payment_method, reference=payment.reference, payment_account_id=payment.payment_account_id, journal_entry_id=payment.journal_entry_id, created_by=payment.created_by, created_at=payment.created_at)
+        model = BillPaymentModel(
+            id=payment.id,
+            tenant_id=payment.tenant_id,
+            bill_id=payment.bill_id,
+            vendor_id=payment.vendor_id,
+            amount=payment.amount,
+            payment_date=payment.payment_date,
+            payment_method=payment.payment_method.value
+            if isinstance(payment.payment_method, PaymentMethod)
+            else payment.payment_method,
+            reference=payment.reference,
+            payment_account_id=payment.payment_account_id,
+            journal_entry_id=payment.journal_entry_id,
+            created_by=payment.created_by,
+            created_at=payment.created_at,
+        )
         self._session.add(model)
         await self._session.flush()
         return payment
 
     async def list_by_bill(self, tenant_id: uuid.UUID, bill_id: uuid.UUID) -> list[BillPayment]:
-        stmt = select(BillPaymentModel).where(BillPaymentModel.bill_id == bill_id, BillPaymentModel.tenant_id == tenant_id)
+        stmt = select(BillPaymentModel).where(
+            BillPaymentModel.bill_id == bill_id, BillPaymentModel.tenant_id == tenant_id
+        )
         result = await self._session.execute(stmt)
         return [_bill_payment_to_entity(m) for m in result.scalars().all()]
 
     async def sum_paid_for_bill(self, tenant_id: uuid.UUID, bill_id: uuid.UUID) -> Decimal:
-        stmt = select(func.coalesce(func.sum(BillPaymentModel.amount), 0)).where(BillPaymentModel.bill_id == bill_id, BillPaymentModel.tenant_id == tenant_id)
+        stmt = select(func.coalesce(func.sum(BillPaymentModel.amount), 0)).where(
+            BillPaymentModel.bill_id == bill_id, BillPaymentModel.tenant_id == tenant_id
+        )
         result = await self._session.execute(stmt)
         return Decimal(str(result.scalar()))
 
     async def get_by_idempotency_key(self, tenant_id: uuid.UUID, key: str) -> BillPayment | None:
-        stmt = select(BillPaymentModel).where(BillPaymentModel.tenant_id == tenant_id, BillPaymentModel.idempotency_key == key)
+        stmt = select(BillPaymentModel).where(
+            BillPaymentModel.tenant_id == tenant_id, BillPaymentModel.idempotency_key == key
+        )
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
         return _bill_payment_to_entity(model) if model else None
@@ -1107,39 +1204,78 @@ class SqlAlchemyBillPaymentRepository(BillPaymentRepository):
 
 def _bill_to_entity(model: BillModel) -> Bill:
     status = BillStatus.DRAFT
-    try: status = BillStatus(model.status)
-    except ValueError: pass
+    try:
+        status = BillStatus(model.status)
+    except ValueError:
+        pass
     return Bill(
-        id=model.id, tenant_id=model.tenant_id, vendor_id=model.vendor_id,
-        bill_number=model.bill_number or "", issue_date=model.issue_date, due_date=model.due_date,
-        status=status, subtotal=model.subtotal or Decimal("0"), gst_amount=model.gst_amount or Decimal("0"),
-        total=model.total or Decimal("0"), journal_entry_id=model.journal_entry_id,
-        created_by=model.created_by, created_at=_as_utc(model.created_at) if model.created_at else None,
+        id=model.id,
+        tenant_id=model.tenant_id,
+        vendor_id=model.vendor_id,
+        bill_number=model.bill_number or "",
+        issue_date=model.issue_date,
+        due_date=model.due_date,
+        status=status,
+        subtotal=model.subtotal or Decimal("0"),
+        gst_amount=model.gst_amount or Decimal("0"),
+        total=model.total or Decimal("0"),
+        journal_entry_id=model.journal_entry_id,
+        created_by=model.created_by,
+        created_at=_as_utc(model.created_at) if model.created_at else None,
         updated_at=_as_utc(model.updated_at) if model.updated_at else None,
-        lines=[BillLine(
-            id=line.id, bill_id=line.bill_id, account_id=line.account_id,
-            description=line.description,
-            quantity=line.quantity or Decimal("1"),
-            unit_price=line.unit_price or (line.amount if line.amount else Decimal("0")),
-            gst_rate=line.gst_rate or Decimal("0"),
-            line_total=line.line_total or (line.amount if line.amount else Decimal("0")),
-            gst_amount=line.gst_amount or Decimal("0"),
-        ) for line in sorted(model.lines, key=lambda lm: str(lm.id) if lm.id else "")],
+        lines=[
+            BillLine(
+                id=line.id,
+                bill_id=line.bill_id,
+                account_id=line.account_id,
+                description=line.description,
+                quantity=line.quantity or Decimal("1"),
+                unit_price=line.unit_price or (line.amount if line.amount else Decimal("0")),
+                gst_rate=line.gst_rate or Decimal("0"),
+                line_total=line.line_total or (line.amount if line.amount else Decimal("0")),
+                gst_amount=line.gst_amount or Decimal("0"),
+            )
+            for line in sorted(model.lines, key=lambda lm: str(lm.id) if lm.id else "")
+        ],
     )
 
 
 def _apply_bill_lines(model: BillModel, bill: Bill) -> None:
     model.lines.clear()
     for line in bill.lines:
-        model.lines.append(BillLineModel(
-            id=line.id, bill_id=bill.id, account_id=line.account_id,
-            description=line.description, quantity=line.quantity, unit_price=line.unit_price,
-            amount=line.line_total, gst_rate=line.gst_rate, line_total=line.line_total, gst_amount=line.gst_amount,
-        ))
+        model.lines.append(
+            BillLineModel(
+                id=line.id,
+                bill_id=bill.id,
+                account_id=line.account_id,
+                description=line.description,
+                quantity=line.quantity,
+                unit_price=line.unit_price,
+                amount=line.line_total,
+                gst_rate=line.gst_rate,
+                line_total=line.line_total,
+                gst_amount=line.gst_amount,
+            )
+        )
 
 
 def _bill_payment_to_entity(model: BillPaymentModel) -> BillPayment:
     pm = PaymentMethod.OTHER
-    try: pm = PaymentMethod(model.payment_method)
-    except ValueError: pass
-    return BillPayment(id=model.id, bill_id=model.bill_id, tenant_id=model.tenant_id, vendor_id=model.vendor_id, amount=model.amount, payment_date=model.payment_date, payment_method=pm, reference=model.reference, payment_account_id=model.payment_account_id, journal_entry_id=model.journal_entry_id, created_by=model.created_by, created_at=_as_utc(model.created_at) if model.created_at else None)
+    try:
+        pm = PaymentMethod(model.payment_method)
+    except ValueError:
+        pass
+    return BillPayment(
+        id=model.id,
+        bill_id=model.bill_id,
+        tenant_id=model.tenant_id,
+        vendor_id=model.vendor_id,
+        amount=model.amount,
+        payment_date=model.payment_date,
+        payment_method=pm,
+        reference=model.reference,
+        payment_account_id=model.payment_account_id,
+        journal_entry_id=model.journal_entry_id,
+        created_by=model.created_by,
+        created_at=_as_utc(model.created_at) if model.created_at else None,
+    )
