@@ -1,0 +1,14 @@
+date,description,amount
+2026-04-01,Invoice payment - INV-0001,1090.00
+2026-04-02,Customer deposit - Acme Pte Ltd,2500.00
+2026-04-03,Refund to customer - INV-0002,-150.00
+2026-04-05,Service fee - Monthly,-42.00
+2026-04-08,Payment received - Globex Pte Ltd,3800.00
+2026-04-10,Bank charges,-15.00
+2026-04-12,Interest income,12.34
+2026-04-15,Transfer to savings account,-2000.00
+2026-04-18,Payment - INV-0005,1750.00
+2026-04-22,Utility bill payment,-345.67
+2026-04-25,Salary payment,-5000.00
+2026-04-28,Payment from customer - INV-0008,2200.00
+2026-04-30,GST payment,-480.00

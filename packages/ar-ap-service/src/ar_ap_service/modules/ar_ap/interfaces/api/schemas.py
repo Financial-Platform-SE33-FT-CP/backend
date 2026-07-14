@@ -9,8 +9,10 @@ from uuid import UUID
 from pydantic import BaseModel, ConfigDict, Field
 
 from ar_ap_service.modules.ar_ap.domain.entities import (
-    APAgingLine,
+    BankAccount,
+    BankTransaction,
     Bill,
+    BillLine,
     BillPayment,
     BillSettlement,
     CreditNote,
@@ -18,6 +20,8 @@ from ar_ap_service.modules.ar_ap.domain.entities import (
     InvoiceSettlement,
     Payment,
     PaymentMethod,
+    ReconciliationSuggestion,
+    Vendor,
 )
 
 
@@ -270,6 +274,107 @@ class CreditNoteResponse(BaseModel):
         )
 
 
+class CreateBankAccountRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    name: str = Field(min_length=1, max_length=255)
+    account_number: str | None = Field(default=None, max_length=64)
+    currency: str = Field(default="SGD", max_length=3)
+    opening_balance: Decimal = Field(default=Decimal("0.00"))
+
+
+class BankAccountResponse(BaseModel):
+    id: UUID
+    tenant_id: UUID | None
+    name: str
+    account_number: str | None
+    currency: str
+    opening_balance: Decimal
+
+    @classmethod
+    def from_entity(cls, acct: BankAccount) -> BankAccountResponse:
+        return cls(
+            id=acct.id,
+            tenant_id=acct.tenant_id,
+            name=acct.name,
+            account_number=acct.account_number,
+            currency=acct.currency,
+            opening_balance=acct.opening_balance,
+        )
+
+
+class UploadBankStatementRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    bank_account_id: UUID
+    csv_content: str = Field(min_length=1)
+
+
+class BankTransactionResponse(BaseModel):
+    id: UUID
+    bank_account_id: UUID
+    transaction_date: date
+    description: str | None
+    amount: Decimal
+    matched: bool
+    journal_entry_id: str | None
+    checksum_hash: str | None
+    upload_batch_id: UUID | None
+    reconciliation_entity_type: str | None
+    reconciliation_entity_id: UUID | None
+    created_at: datetime
+
+    @classmethod
+    def from_entity(cls, txn: BankTransaction) -> BankTransactionResponse:
+        ba_id = txn.bank_account_id or UUID("00000000-0000-0000-0000-000000000000")
+        txn_date = txn.transaction_date or date.today()
+        return cls(
+            id=txn.id,
+            bank_account_id=ba_id,
+            transaction_date=txn_date,
+            description=txn.description,
+            amount=txn.amount,
+            matched=txn.matched,
+            journal_entry_id=txn.journal_entry_id,
+            checksum_hash=txn.checksum_hash,
+            upload_batch_id=txn.upload_batch_id,
+            reconciliation_entity_type=txn.reconciliation_entity_type,
+            reconciliation_entity_id=txn.reconciliation_entity_id,
+            created_at=txn.created_at,
+        )
+
+
+class ReconcileTransactionRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    transaction_id: UUID
+    match_type: str = Field(pattern=r"^(invoice|payment|bill|other)$")
+    match_id: UUID | None = None
+    account_id: UUID
+
+
+class ReconciliationSuggestionResponse(BaseModel):
+    bank_transaction_id: UUID
+    match_type: str
+    match_id: UUID
+    match_label: str
+    match_amount: Decimal
+    difference: Decimal
+    confidence: str
+
+    @classmethod
+    def from_entity(cls, s: ReconciliationSuggestion) -> ReconciliationSuggestionResponse:
+        return cls(
+            bank_transaction_id=s.bank_transaction_id,
+            match_type=s.match_type,
+            match_id=s.match_id,
+            match_label=s.match_label,
+            match_amount=s.match_amount,
+            difference=s.difference,
+            confidence=s.confidence,
+        )
+
+
+# ── bills / AP (US-11 / US-12) ────────────────────────────────────────────────
+
+
 class BillLineRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
@@ -362,7 +467,7 @@ class BillResponse(BaseModel):
 class CreateVendorRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
-    name: str = Field(min_length=1, max_length=255)
+    name: str = Field(min_length=1)
     email: str | None = None
 
 
@@ -372,16 +477,24 @@ class VendorResponse(BaseModel):
     name: str
     email: str | None
 
+    @classmethod
+    def from_entity(cls, v: Vendor) -> VendorResponse:
+        return cls(
+            id=v.id,
+            tenant_id=v.tenant_id,
+            name=v.name,
+            email=v.email,
+        )
+
 
 class PayBillRequest(BaseModel):
     model_config = ConfigDict(extra="forbid")
 
     payment_date: date
     amount: Decimal = Field(gt=0)
-    payment_method: PaymentMethod = PaymentMethod.BANK_TRANSFER
-    reference: str | None = Field(default=None, max_length=255)
+    payment_method: str
+    reference: str | None = None
     payment_account_id: UUID
-    idempotency_key: str | None = Field(default=None, max_length=255)
 
 
 class BillPaymentResponse(BaseModel):
@@ -423,7 +536,8 @@ class BillSettlementResponse(BaseModel):
     outstanding: Decimal
 
     @classmethod
-    def from_entity(cls, bill_id: UUID, settlement: BillSettlement) -> BillSettlementResponse:
+    def from_entity(cls, bill_id: UUID, total: Decimal, paid: Decimal) -> BillSettlementResponse:
+        settlement = BillSettlement(bill_total=total, amount_paid=paid)
         return cls(
             bill_id=bill_id,
             bill_total=settlement.bill_total,
@@ -434,25 +548,11 @@ class BillSettlementResponse(BaseModel):
 
 class APAgingLineResponse(BaseModel):
     bill_id: UUID
-    vendor_id: UUID | None
+    vendor_id: str | None
     bill_number: str
-    due_date: date | None
-    bill_total: Decimal
-    amount_paid: Decimal
-    outstanding: Decimal
+    due_date: str | None
+    bill_total: str
+    amount_paid: str
+    outstanding: str
     days_overdue: int
     aging_bucket: str
-
-    @classmethod
-    def from_entity(cls, line: APAgingLine) -> APAgingLineResponse:
-        return cls(
-            bill_id=line.bill_id,
-            vendor_id=line.vendor_id,
-            bill_number=line.bill_number,
-            due_date=line.due_date,
-            bill_total=line.bill_total,
-            amount_paid=line.amount_paid,
-            outstanding=line.outstanding,
-            days_overdue=line.days_overdue,
-            aging_bucket=line.aging_bucket,
-        )
