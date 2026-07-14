@@ -21,6 +21,7 @@ from ar_ap_service.modules.ar_ap.domain.entities import (
     Payment,
 )
 
+
 class InvoiceRepository(ABC):
     """Persistence port for invoices and their lines (always tenant-scoped)."""
 
@@ -223,7 +224,9 @@ class BankTransactionRepository(ABC):
     """
 
     @abstractmethod
-    async def add_many(self, tenant_id: UUID, transactions: list[BankTransaction]) -> list[BankTransaction]:
+    async def add_many(
+        self, tenant_id: UUID, transactions: list[BankTransaction]
+    ) -> list[BankTransaction]:
         """Persist a batch of new bank transactions."""
 
     @abstractmethod

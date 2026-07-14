@@ -3,6 +3,7 @@
 US-11: Record vendor bills (draft → open/recorded).
 US-12: Pay bills (record bill payment → update status).
 """
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -34,9 +35,7 @@ _ASSET_TYPE = "asset"
 _EXPENSE_TYPE = "expense"
 _LIABILITY_TYPE = "liability"
 
-_PAYABLE_STATUSES: frozenset[BillStatus] = frozenset(
-    {BillStatus.OPEN, BillStatus.PARTIAL}
-)
+_PAYABLE_STATUSES: frozenset[BillStatus] = frozenset({BillStatus.OPEN, BillStatus.PARTIAL})
 
 
 class BillService:
@@ -121,9 +120,7 @@ class BillService:
         await self._validate_accounts(tenant_id, bill)
 
         if await self._ledger.is_period_closed(tenant_id, bill.issue_date):
-            raise ConflictError(
-                f"Cannot record bill: {bill.issue_date} is in a closed period."
-            )
+            raise ConflictError(f"Cannot record bill: {bill.issue_date} is in a closed period.")
 
         bill.recalculate_totals()
         ap_account = await self._require_ap_account(tenant_id)
@@ -131,28 +128,32 @@ class BillService:
         for line in bill.lines:
             acc = await self._accounts.get_by_id(tenant_id, line.account_id)
             if acc is None:
-                raise ValidationError(
-                    f"Account {line.account_id} not found for this tenant."
-                )
+                raise ValidationError(f"Account {line.account_id} not found for this tenant.")
             line_total = line.line_total
             gst = line.gst_amount
-            lines.append(JournalLineInput(
-                account_id=str(line.account_id),
-                debit_amount=line_total,
-                description=line.description or "Bill expense",
-            ))
+            lines.append(
+                JournalLineInput(
+                    account_id=str(line.account_id),
+                    debit_amount=line_total,
+                    description=line.description or "Bill expense",
+                )
+            )
             if gst > _ZERO:
                 gst_account = await self._require_gst_account(tenant_id)
-                lines.append(JournalLineInput(
-                    account_id=str(gst_account.id),
-                    debit_amount=gst,
-                    description="GST input tax",
-                ))
-        lines.append(JournalLineInput(
-            account_id=str(ap_account.id),
-            credit_amount=bill.total,
-            description=f"Bill {bill.bill_number or bill.id}",
-        ))
+                lines.append(
+                    JournalLineInput(
+                        account_id=str(gst_account.id),
+                        debit_amount=gst,
+                        description="GST input tax",
+                    )
+                )
+        lines.append(
+            JournalLineInput(
+                account_id=str(ap_account.id),
+                credit_amount=bill.total,
+                description=f"Bill {bill.bill_number or bill.id}",
+            )
+        )
 
         bill_number = await self._next_bill_number(tenant_id)
         entry_id = await self._ledger.post_journal_entry(
@@ -199,9 +200,7 @@ class BillService:
 
     # ── vendor helpers ────────────────────────────────────────────────────────
 
-    async def create_vendor(
-        self, tenant_id: UUID, name: str, email: str | None = None
-    ) -> Vendor:
+    async def create_vendor(self, tenant_id: UUID, name: str, email: str | None = None) -> Vendor:
         vendor = Vendor(tenant_id=tenant_id, name=name, email=email)
         return await self._vendors.add(vendor)
 
@@ -224,9 +223,7 @@ class BillService:
     ) -> Bill:
         bill = await self._require_bill(tenant_id, bill_id)
         if bill.status not in _PAYABLE_STATUSES:
-            raise ConflictError(
-                f"Cannot pay a bill with status {bill.status.value!r}."
-            )
+            raise ConflictError(f"Cannot pay a bill with status {bill.status.value!r}.")
 
         if amount <= _ZERO:
             raise ValidationError("Payment amount must be greater than zero.")
@@ -236,17 +233,13 @@ class BillService:
         if outstanding <= _ZERO:
             raise ConflictError("Bill is already fully paid.")
         if amount > outstanding:
-            raise ValidationError(
-                f"Payment amount {amount} exceeds outstanding {outstanding}."
-            )
+            raise ValidationError(f"Payment amount {amount} exceeds outstanding {outstanding}.")
 
         bank_account = await self._require_bank_account(tenant_id, payment_account_id)
         ap_account = await self._require_ap_account(tenant_id)
 
         if await self._ledger.is_period_closed(tenant_id, payment_date):
-            raise ConflictError(
-                f"Cannot record payment: {payment_date} is in a closed period."
-            )
+            raise ConflictError(f"Cannot record payment: {payment_date} is in a closed period.")
 
         payment = BillPayment(
             bill_id=bill_id,
@@ -292,23 +285,17 @@ class BillService:
             bill.status = BillStatus.PARTIAL
         return await self._bills.update(bill)
 
-    async def get_bill_settlement(
-        self, tenant_id: UUID, bill_id: UUID
-    ) -> tuple[Decimal, Decimal]:
+    async def get_bill_settlement(self, tenant_id: UUID, bill_id: UUID) -> tuple[Decimal, Decimal]:
         bill = await self._require_bill(tenant_id, bill_id)
         paid = await self._bill_payments.sum_paid_for_bill(tenant_id, bill_id)
         return bill.total, paid
 
-    async def list_bill_payments(
-        self, tenant_id: UUID, bill_id: UUID
-    ) -> list[BillPayment]:
+    async def list_bill_payments(self, tenant_id: UUID, bill_id: UUID) -> list[BillPayment]:
         return await self._bill_payments.list_by_bill(tenant_id, bill_id)
 
     # ── AP aging ──────────────────────────────────────────────────────────────
 
-    async def get_ap_aging(
-        self, tenant_id: UUID, as_of: date | None = None
-    ) -> list[dict]:
+    async def get_ap_aging(self, tenant_id: UUID, as_of: date | None = None) -> list[dict]:
         bills = await self._bills.list_by_tenant(tenant_id)
         cutoff = as_of or date.today()
         rows: list[dict] = []
@@ -329,17 +316,19 @@ class BillService:
                 bucket = "31_60"
             elif days > 0:
                 bucket = "1_30"
-            rows.append({
-                "bill_id": str(bill.id),
-                "vendor_id": str(bill.vendor_id) if bill.vendor_id else None,
-                "bill_number": bill.bill_number,
-                "due_date": bill.due_date.isoformat() if bill.due_date else None,
-                "bill_total": str(bill.total),
-                "amount_paid": str(paid),
-                "outstanding": str(outstanding),
-                "days_overdue": max(days, 0),
-                "aging_bucket": bucket,
-            })
+            rows.append(
+                {
+                    "bill_id": str(bill.id),
+                    "vendor_id": str(bill.vendor_id) if bill.vendor_id else None,
+                    "bill_number": bill.bill_number,
+                    "due_date": bill.due_date.isoformat() if bill.due_date else None,
+                    "bill_total": str(bill.total),
+                    "amount_paid": str(paid),
+                    "outstanding": str(outstanding),
+                    "days_overdue": max(days, 0),
+                    "aging_bucket": bucket,
+                }
+            )
         return rows
 
     # ── internal helpers ───────────────────────────────────────────────────────
@@ -366,9 +355,7 @@ class BillService:
         if bill is None:
             raise NotFoundError("Bill not found.")
         if bill.status != BillStatus.DRAFT:
-            raise ConflictError(
-                f"Bill is already recorded (status: {bill.status.value})."
-            )
+            raise ConflictError(f"Bill is already recorded (status: {bill.status.value}).")
         return bill
 
     async def _require_bill(self, tenant_id: UUID, bill_id: UUID) -> Bill:
@@ -390,9 +377,7 @@ class BillService:
         gst_code = "1200"
         gst = await self._accounts.get_by_code(tenant_id, gst_code)
         if gst is None:
-            raise ValidationError(
-                f"GST Input account (code {gst_code}) not configured."
-            )
+            raise ValidationError(f"GST Input account (code {gst_code}) not configured.")
         return gst
 
     async def _require_bank_account(self, tenant_id: UUID, account_id: UUID) -> AccountInfo:
@@ -407,9 +392,7 @@ class BillService:
         for line in bill.lines:
             acc = await self._accounts.get_by_id(tenant_id, line.account_id)
             if acc is None:
-                raise ValidationError(
-                    f"Account {line.account_id} not found for this tenant."
-                )
+                raise ValidationError(f"Account {line.account_id} not found for this tenant.")
             if acc.account_type not in (_EXPENSE_TYPE, _ASSET_TYPE):
                 raise ValidationError(
                     f"Account {acc.code} ({acc.name}) is not an expense or asset account."

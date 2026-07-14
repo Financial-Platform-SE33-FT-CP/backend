@@ -219,6 +219,8 @@ async def get_bank_statement_service(
     bank_txn_repo: SqlAlchemyBankTransactionRepository = Depends(get_bank_transaction_repository),
 ) -> BankStatementService:
     return BankStatementService(bank_txn_repo=bank_txn_repo)
+
+
 async def get_reconciliation_service(
     bank_txn_repo: SqlAlchemyBankTransactionRepository = Depends(get_bank_transaction_repository),
     session: AsyncSession = Depends(get_async_session),

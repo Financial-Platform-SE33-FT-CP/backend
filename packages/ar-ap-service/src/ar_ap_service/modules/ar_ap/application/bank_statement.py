@@ -84,7 +84,14 @@ def _detect_layout(headers: list[str]) -> DetectedLayout:
         h_norm = h.replace(" ", "_")
         if h_norm in ("date", "transaction_date", "trans_date", "posting_date"):
             date_idx = i
-        elif h_norm in ("description", "narration", "details", "memo", "particulars", "transaction_description"):
+        elif h_norm in (
+            "description",
+            "narration",
+            "details",
+            "memo",
+            "particulars",
+            "transaction_description",
+        ):
             desc_idx = i
         elif h_norm in ("amount", "transaction_amount", "trx_amount", "value"):
             amount_idx = i
@@ -155,12 +162,14 @@ def parse_bank_statement_csv(content: str) -> list[ParsedTransaction]:
             amount = _clean_amount(raw_amount)
             checksum = _compute_checksum(date_str, desc, raw_amount)
 
-            transactions.append(ParsedTransaction(
-                date=date_str,
-                description=desc,
-                amount=amount,
-                checksum_hash=checksum,
-            ))
+            transactions.append(
+                ParsedTransaction(
+                    date=date_str,
+                    description=desc,
+                    amount=amount,
+                    checksum_hash=checksum,
+                )
+            )
         except ValidationError:
             raise
         except Exception as exc:

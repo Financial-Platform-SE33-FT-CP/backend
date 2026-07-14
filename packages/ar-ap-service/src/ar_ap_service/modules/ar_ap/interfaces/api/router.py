@@ -47,7 +47,14 @@ from ar_ap_service.modules.ar_ap.application.services import (
     InvoiceService,
     PaymentService,
 )
-from ar_ap_service.modules.ar_ap.domain.entities import BankAccount, Bill, BillPayment, Customer, PaymentMethod, Vendor
+from ar_ap_service.modules.ar_ap.domain.entities import (
+    BankAccount,
+    Bill,
+    BillPayment,
+    Customer,
+    PaymentMethod,
+    Vendor,
+)
 from ar_ap_service.modules.ar_ap.interfaces.api.schemas import (
     APAgingLineResponse,
     BankAccountResponse,
@@ -596,7 +603,14 @@ async def create_bill(
     user_id: Annotated[UserId, Depends(get_current_user_id)],
     service: Annotated[BillService, Depends(get_bill_service)],
 ) -> BillResponse:
-    bill = await service.create_draft(tenant_id, body.vendor_id, issue_date=body.issue_date, due_date=body.due_date, lines_input=_bill_lines_to_input(body.lines), created_by=user_id)
+    bill = await service.create_draft(
+        tenant_id,
+        body.vendor_id,
+        issue_date=body.issue_date,
+        due_date=body.due_date,
+        lines_input=_bill_lines_to_input(body.lines),
+        created_by=user_id,
+    )
     return BillResponse.from_entity(bill)
 
 
@@ -610,11 +624,14 @@ async def list_bills(
     issued_from: date | None = None,
     issued_to: date | None = None,
 ) -> list[BillResponse]:
-    bills = await service.list_bills(tenant_id, status=status, vendor_id=vendor_id, issued_from=issued_from, issued_to=issued_to)
+    bills = await service.list_bills(
+        tenant_id, status=status, vendor_id=vendor_id, issued_from=issued_from, issued_to=issued_to
+    )
     return [BillResponse.from_entity(b) for b in bills]
 
 
 # Static paths MUST come before dynamic {bill_id} to avoid UUID parse errors.
+
 
 @router.get("/bills/ap-aging", response_model=list[APAgingLineResponse])
 async def get_ap_aging(
@@ -671,7 +688,14 @@ async def update_bill(
     service: Annotated[BillService, Depends(get_bill_service)],
 ) -> BillResponse:
     lines_input = _bill_lines_to_input(body.lines) if body.lines is not None else None
-    bill = await service.update_draft(tenant_id, bill_id, vendor_id=body.vendor_id, issue_date=body.issue_date, due_date=body.due_date, lines_input=lines_input)
+    bill = await service.update_draft(
+        tenant_id,
+        bill_id,
+        vendor_id=body.vendor_id,
+        issue_date=body.issue_date,
+        due_date=body.due_date,
+        lines_input=lines_input,
+    )
     return BillResponse.from_entity(bill)
 
 
@@ -697,7 +721,9 @@ async def delete_bill(
     await service.delete_draft(tenant_id, bill_id)
 
 
-@router.post("/bills/{bill_id}/payments", response_model=BillResponse, status_code=status.HTTP_201_CREATED)
+@router.post(
+    "/bills/{bill_id}/payments", response_model=BillResponse, status_code=status.HTTP_201_CREATED
+)
 async def pay_bill(
     bill_id: UUID,
     body: PayBillRequest,
@@ -707,7 +733,8 @@ async def pay_bill(
     service: Annotated[BillService, Depends(get_bill_service)],
 ) -> BillResponse:
     bill = await service.pay_bill(
-        tenant_id, bill_id,
+        tenant_id,
+        bill_id,
         payment_date=body.payment_date,
         amount=body.amount,
         payment_method=PaymentMethod(body.payment_method),

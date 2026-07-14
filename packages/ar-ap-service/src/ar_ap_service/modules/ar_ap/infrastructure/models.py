@@ -90,7 +90,9 @@ class InvoiceModel(Base):  # type: ignore[misc, valid-type]
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    lines: Mapped[list["InvoiceLineModel"]] = relationship("InvoiceLineModel", back_populates="invoice")
+    lines: Mapped[list["InvoiceLineModel"]] = relationship(
+        "InvoiceLineModel", back_populates="invoice"
+    )
     payments: Mapped[list["PaymentModel"]] = relationship("PaymentModel", back_populates="invoice")
 
 
@@ -99,17 +101,26 @@ class InvoiceLineModel(Base):  # type: ignore[misc, valid-type]
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     invoice_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("invoices.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("invoices.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
     account_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("chart_of_accounts.id", ondelete="RESTRICT"), nullable=False
     )
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("1"))
-    unit_price: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0"))
+    unit_price: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0")
+    )
     gst_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
-    line_total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0"))
-    gst_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0"))
+    line_total: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0")
+    )
+    gst_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0")
+    )
 
     invoice: Mapped["InvoiceModel"] = relationship("InvoiceModel", back_populates="lines")
 
@@ -153,7 +164,9 @@ class BillLineModel(Base):  # type: ignore[misc, valid-type]
         UUID(as_uuid=True), ForeignKey("chart_of_accounts.id", ondelete="RESTRICT"), nullable=False
     )
     quantity: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("1"))
-    unit_price: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0"))
+    unit_price: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0")
+    )
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     gst_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
     line_total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
@@ -172,7 +185,9 @@ class BankAccountModel(Base):  # type: ignore[misc, valid-type]
     name: Mapped[str] = mapped_column(String(255), nullable=False)
     account_number: Mapped[str | None] = mapped_column(String(64), nullable=True)
     currency: Mapped[str] = mapped_column(String(3), nullable=False, default="SGD")
-    opening_balance: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0.00"))
+    opening_balance: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0.00")
+    )
 
 
 class BankTransactionModel(Base):  # type: ignore[misc, valid-type]
@@ -183,7 +198,10 @@ class BankTransactionModel(Base):  # type: ignore[misc, valid-type]
         UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
     )
     bank_account_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("bank_accounts.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("bank_accounts.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     transaction_date: Mapped[date] = mapped_column(Date, nullable=False)
     description: Mapped[str | None] = mapped_column(Text, nullable=True)
@@ -195,7 +213,9 @@ class BankTransactionModel(Base):  # type: ignore[misc, valid-type]
     checksum_hash: Mapped[str | None] = mapped_column(String(64), nullable=True, index=True)
     upload_batch_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     reconciliation_entity_type: Mapped[str | None] = mapped_column(String(32), nullable=True)
-    reconciliation_entity_id: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
+    reconciliation_entity_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True), nullable=True
+    )
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 
@@ -225,7 +245,10 @@ class PaymentModel(Base):  # type: ignore[misc, valid-type]
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     tenant_id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), nullable=False, index=True)
     invoice_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("invoices.id", ondelete="RESTRICT"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("invoices.id", ondelete="RESTRICT"),
+        nullable=False,
+        index=True,
     )
     customer_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("customers.id", ondelete="RESTRICT"), nullable=True
@@ -248,7 +271,9 @@ class PaymentModel(Base):  # type: ignore[misc, valid-type]
 class BillPaymentModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "bill_payments"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "idempotency_key", name="uq_bill_payments_tenant_idempotency_key"),
+        UniqueConstraint(
+            "tenant_id", "idempotency_key", name="uq_bill_payments_tenant_idempotency_key"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -277,8 +302,12 @@ class BillPaymentModel(Base):  # type: ignore[misc, valid-type]
 class CreditNoteModel(Base):  # type: ignore[misc, valid-type]
     __tablename__ = "credit_notes"
     __table_args__ = (
-        UniqueConstraint("tenant_id", "credit_note_number", name="uq_credit_notes_tenant_cn_number"),
-        UniqueConstraint("tenant_id", "idempotency_key", name="uq_credit_notes_tenant_idempotency_key"),
+        UniqueConstraint(
+            "tenant_id", "credit_note_number", name="uq_credit_notes_tenant_cn_number"
+        ),
+        UniqueConstraint(
+            "tenant_id", "idempotency_key", name="uq_credit_notes_tenant_idempotency_key"
+        ),
     )
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
@@ -286,7 +315,10 @@ class CreditNoteModel(Base):  # type: ignore[misc, valid-type]
         UUID(as_uuid=True), ForeignKey("tenants.id", ondelete="CASCADE"), nullable=False, index=True
     )
     invoice_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("invoices.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("invoices.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     customer_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("customers.id", ondelete="RESTRICT"), nullable=True
@@ -296,7 +328,9 @@ class CreditNoteModel(Base):  # type: ignore[misc, valid-type]
     reason: Mapped[str | None] = mapped_column(Text, nullable=True)
     status: Mapped[str] = mapped_column(String(32), nullable=False, default="issued")
     subtotal: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0"))
-    gst_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0"))
+    gst_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0")
+    )
     total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0"))
     journal_entry_id: Mapped[str | None] = mapped_column(
         String(36), ForeignKey("journal_entries.id", ondelete="SET NULL"), nullable=True
@@ -305,7 +339,9 @@ class CreditNoteModel(Base):  # type: ignore[misc, valid-type]
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
-    lines: Mapped[list["CreditNoteLineModel"]] = relationship("CreditNoteLineModel", back_populates="credit_note")
+    lines: Mapped[list["CreditNoteLineModel"]] = relationship(
+        "CreditNoteLineModel", back_populates="credit_note"
+    )
 
 
 class CreditNoteLineModel(Base):  # type: ignore[misc, valid-type]
@@ -313,7 +349,10 @@ class CreditNoteLineModel(Base):  # type: ignore[misc, valid-type]
 
     id: Mapped[uuid.UUID] = mapped_column(UUID(as_uuid=True), primary_key=True, default=uuid.uuid4)
     credit_note_id: Mapped[uuid.UUID] = mapped_column(
-        UUID(as_uuid=True), ForeignKey("credit_notes.id", ondelete="CASCADE"), nullable=False, index=True
+        UUID(as_uuid=True),
+        ForeignKey("credit_notes.id", ondelete="CASCADE"),
+        nullable=False,
+        index=True,
     )
     invoice_line_id: Mapped[uuid.UUID | None] = mapped_column(
         UUID(as_uuid=True), ForeignKey("invoice_lines.id", ondelete="SET NULL"), nullable=True
@@ -326,6 +365,8 @@ class CreditNoteLineModel(Base):  # type: ignore[misc, valid-type]
     )
     gst_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
     line_total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
-    gst_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False, default=Decimal("0.00"))
+    gst_amount: Mapped[Decimal] = mapped_column(
+        Numeric(18, 2), nullable=False, default=Decimal("0.00")
+    )
 
     credit_note: Mapped["CreditNoteModel"] = relationship("CreditNoteModel", back_populates="lines")
