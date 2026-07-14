@@ -99,3 +99,31 @@ class IssueCreditNoteCommand(BaseModel):
     reason: str | None = Field(default=None, max_length=500)
     lines: list[CreditNoteLineInput] = Field(min_length=1)
     idempotency_key: str | None = Field(default=None, max_length=255)
+
+
+class UploadBankStatementCommand(BaseModel):
+    """Payload for uploading a CSV bank statement (US-13)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    bank_account_id: UUID
+    csv_content: str = Field(min_length=1, description="Raw CSV content of the bank statement")
+
+
+class ReconcileTransactionCommand(BaseModel):
+    """Payload for confirming a bank transaction match (US-14)."""
+
+    model_config = ConfigDict(extra="forbid")
+
+    transaction_id: UUID
+    match_type: str = Field(
+        pattern=r"^(invoice|payment|bill|other)$",
+        description="Type of entity being matched",
+    )
+    match_id: UUID | None = Field(
+        default=None,
+        description="ID of the matched invoice, payment, or bill",
+    )
+    account_id: UUID = Field(
+        description="Account to post the other side of the journal entry (e.g. bank/cash account)",
+    )

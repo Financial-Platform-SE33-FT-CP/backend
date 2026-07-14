@@ -1,21 +1,22 @@
 """Test configuration and in-memory fakes for AR/AP Service.
 
-Business logic for US-8 lives in ``InvoiceService`` behind repository/poster
-ports, so we exercise it with deterministic in-memory fakes instead of a real
-database. This mirrors the repo's existing mock-driven AR/AP tests and keeps the
-suite fast and dialect-independent.
+Business logic lives behind repository/poster ports, so we exercise it with
+deterministic in-memory fakes instead of a real database. This keeps the suite
+fast and dialect-independent.
 """
-
 from __future__ import annotations
 
 import copy
-from datetime import date
+from collections.abc import Sequence
+from datetime import date, datetime
 from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
 
 from ar_ap_service.config import ArApSettings
+from ar_ap_service.modules.ar_ap.application.bank_statement import BankStatementService
+from ar_ap_service.modules.ar_ap.application.reconciliation import ReconciliationService
 from ar_ap_service.modules.ar_ap.application.services import (
     CreditNoteService,
     InvoiceService,
@@ -23,6 +24,7 @@ from ar_ap_service.modules.ar_ap.application.services import (
 )
 from ar_ap_service.modules.ar_ap.domain.entities import (
     AccountInfo,
+    BankTransaction,
     CreditNote,
     Customer,
     Invoice,
@@ -31,6 +33,7 @@ from ar_ap_service.modules.ar_ap.domain.entities import (
 )
 from ar_ap_service.modules.ar_ap.domain.repository import (
     AccountReader,
+    BankTransactionRepository,
     CreditNoteRepository,
     CustomerRepository,
     InvoiceRepository,
@@ -453,5 +456,118 @@ def credit_note_service(
         customers=customers,
         accounts=accounts,
         ledger=ledger,
+        settings=settings,
+    )
+
+
+class FakeBankTransactionRepository(BankTransactionRepository):
+    """In-memory fake for bank transaction persistence (US-13/US-14)."""
+
+    def __init__(self) -> None:
+        self._store: dict[UUID, BankTransaction] = {}
+
+    async def add_many(
+        self, tenant_id: UUID, transactions: list[BankTransaction]
+    ) -> list[BankTransaction]:
+        for txn in transactions:
+            self._store[txn.id] = copy.deepcopy(txn)
+        return [copy.deepcopy(t) for t in transactions]
+
+    async def get_by_id(self, tenant_id: UUID, transaction_id: UUID) -> BankTransaction | None:
+        txn = self._store.get(transaction_id)
+        if txn is None or txn.tenant_id != tenant_id:
+            return None
+        return copy.deepcopy(txn)
+
+    async def list_unmatched(
+        self,
+        tenant_id: UUID,
+        *,
+        bank_account_id: UUID | None = None,
+    ) -> list[BankTransaction]:
+        result = []
+        for txn in self._store.values():
+            if txn.tenant_id != tenant_id or txn.matched:
+                continue
+            if bank_account_id is not None and txn.bank_account_id != bank_account_id:
+                continue
+            result.append(copy.deepcopy(txn))
+        return result
+
+    async def list_matched(
+        self,
+        tenant_id: UUID,
+        *,
+        bank_account_id: UUID | None = None,
+    ) -> list[BankTransaction]:
+        result = []
+        for txn in self._store.values():
+            if txn.tenant_id != tenant_id or not txn.matched:
+                continue
+            if bank_account_id is not None and txn.bank_account_id != bank_account_id:
+                continue
+            result.append(copy.deepcopy(txn))
+        return result
+
+    async def list_by_batch(self, tenant_id: UUID, batch_id: UUID) -> list[BankTransaction]:
+        return [
+            copy.deepcopy(t)
+            for t in self._store.values()
+            if t.tenant_id == tenant_id and t.upload_batch_id == batch_id
+        ]
+
+    async def exists_by_hash(self, tenant_id: UUID, checksum_hash: str) -> bool:
+        return any(
+            t.tenant_id == tenant_id and t.checksum_hash == checksum_hash
+            for t in self._store.values()
+        )
+
+    async def update_reconciliation(
+        self,
+        tenant_id: UUID,
+        transaction_id: UUID,
+        *,
+        matched: bool,
+        journal_entry_id: str | None,
+        reconciliation_entity_type: str | None = None,
+        reconciliation_entity_id: UUID | None = None,
+    ) -> None:
+        txn = self._store.get(transaction_id)
+        if txn is None or txn.tenant_id != tenant_id:
+            return
+        txn.matched = matched
+        txn.journal_entry_id = journal_entry_id
+        txn.reconciliation_entity_type = reconciliation_entity_type
+        txn.reconciliation_entity_id = reconciliation_entity_id
+
+
+@pytest.fixture
+def bank_transactions() -> FakeBankTransactionRepository:
+    return FakeBankTransactionRepository()
+
+
+@pytest.fixture
+def bank_statement_service(
+    bank_transactions: FakeBankTransactionRepository,
+) -> BankStatementService:
+    return BankStatementService(bank_txn_repo=bank_transactions)
+
+
+@pytest.fixture
+def reconciliation_service(
+    bank_transactions: FakeBankTransactionRepository,
+    invoices: FakeInvoiceRepository,
+    payments: FakePaymentRepository,
+    ledger: FakeLedgerPoster,
+    accounts: FakeAccountReader,
+    settings: ArApSettings,
+) -> ReconciliationService:
+    return ReconciliationService(
+        bank_txn_repo=bank_transactions,
+        invoice_repo=invoices,
+        payment_repo=payments,
+        ledger_poster=ledger,
+        bill_repo=None,
+        accounts=accounts,
         settings=settings,
     )
