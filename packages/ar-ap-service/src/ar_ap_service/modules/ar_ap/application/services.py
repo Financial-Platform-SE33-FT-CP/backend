@@ -900,7 +900,7 @@ class CreditNoteService:
         gst_transactions = self._build_gst_transactions(saved_credit_note)
         await self._gst.add_transactions(gst_transactions)
 
-        return await self._credit_notes.add(credit_note)
+        return saved_credit_note
 
     # ── helpers ──────────────────────────────────────────────────────────────
 
