@@ -8,7 +8,6 @@ from decimal import Decimal
 
 from sqlalchemy import (
     Boolean,
-    Column,
     Date,
     DateTime,
     ForeignKey,
@@ -59,6 +58,7 @@ class GstCodeModel(Base):
     code: Mapped[str] = mapped_column(String(16), nullable=False)
     rate: Mapped[Decimal] = mapped_column(Numeric(8, 4), nullable=False)
     gst_kind: Mapped[str] = mapped_column(String(16), nullable=False)
+    is_active: Mapped[bool] = mapped_column(Boolean, nullable=False, default=True)
     __table_args__ = (UniqueConstraint("tenant_id", "code", name="uq_gst_codes_tenant_code"),)
 
 
@@ -90,10 +90,10 @@ class InvoiceModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    lines: Mapped[list["InvoiceLineModel"]] = relationship(
+    lines: Mapped[list[InvoiceLineModel]] = relationship(
         "InvoiceLineModel", back_populates="invoice"
     )
-    payments: Mapped[list["PaymentModel"]] = relationship("PaymentModel", back_populates="invoice")
+    payments: Mapped[list[PaymentModel]] = relationship("PaymentModel", back_populates="invoice")
 
 
 class InvoiceLineModel(Base):
@@ -114,6 +114,12 @@ class InvoiceLineModel(Base):
     unit_price: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=Decimal("0")
     )
+    gst_code_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gst_codes.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     gst_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
     line_total: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=Decimal("0")
@@ -122,7 +128,7 @@ class InvoiceLineModel(Base):
         Numeric(18, 2), nullable=False, default=Decimal("0")
     )
 
-    invoice: Mapped["InvoiceModel"] = relationship("InvoiceModel", back_populates="lines")
+    invoice: Mapped[InvoiceModel] = relationship("InvoiceModel", back_populates="lines")
 
 
 class BillModel(Base):
@@ -149,7 +155,7 @@ class BillModel(Base):
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
     updated_at: Mapped[datetime | None] = mapped_column(DateTime, nullable=True)
 
-    lines: Mapped[list["BillLineModel"]] = relationship("BillLineModel", back_populates="bill")
+    lines: Mapped[list[BillLineModel]] = relationship("BillLineModel", back_populates="bill")
 
 
 class BillLineModel(Base):
@@ -168,11 +174,17 @@ class BillLineModel(Base):
         Numeric(18, 2), nullable=False, default=Decimal("0")
     )
     amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
+    gst_code_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gst_codes.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     gst_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
     line_total: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
     gst_amount: Mapped[Decimal | None] = mapped_column(Numeric(18, 2), nullable=True)
 
-    bill: Mapped["BillModel"] = relationship("BillModel", back_populates="lines")
+    bill: Mapped[BillModel] = relationship("BillModel", back_populates="lines")
 
 
 class BankAccountModel(Base):
@@ -234,6 +246,8 @@ class GstTransactionModel(Base):
     taxable_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     gst_amount: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     reporting_period: Mapped[str | None] = mapped_column(String(32), nullable=True)
+    transaction_date: Mapped[date | None] = mapped_column(Date, nullable=True)
+    created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
 
 class PaymentModel(Base):
@@ -265,7 +279,7 @@ class PaymentModel(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
-    invoice: Mapped["InvoiceModel"] = relationship("InvoiceModel", back_populates="payments")
+    invoice: Mapped[InvoiceModel] = relationship("InvoiceModel", back_populates="payments")
 
 
 class BillPaymentModel(Base):
@@ -339,7 +353,7 @@ class CreditNoteModel(Base):
     created_by: Mapped[uuid.UUID | None] = mapped_column(UUID(as_uuid=True), nullable=True)
     created_at: Mapped[datetime] = mapped_column(DateTime, nullable=False, default=datetime.utcnow)
 
-    lines: Mapped[list["CreditNoteLineModel"]] = relationship(
+    lines: Mapped[list[CreditNoteLineModel]] = relationship(
         "CreditNoteLineModel", back_populates="credit_note"
     )
 
@@ -363,10 +377,16 @@ class CreditNoteLineModel(Base):
     account_id: Mapped[uuid.UUID] = mapped_column(
         UUID(as_uuid=True), ForeignKey("chart_of_accounts.id", ondelete="RESTRICT"), nullable=False
     )
+    gst_code_id: Mapped[uuid.UUID | None] = mapped_column(
+        UUID(as_uuid=True),
+        ForeignKey("gst_codes.id", ondelete="RESTRICT"),
+        nullable=True,
+        index=True,
+    )
     gst_rate: Mapped[Decimal | None] = mapped_column(Numeric(8, 4), nullable=True)
     line_total: Mapped[Decimal] = mapped_column(Numeric(18, 2), nullable=False)
     gst_amount: Mapped[Decimal] = mapped_column(
         Numeric(18, 2), nullable=False, default=Decimal("0.00")
     )
 
-    credit_note: Mapped["CreditNoteModel"] = relationship("CreditNoteModel", back_populates="lines")
+    credit_note: Mapped[CreditNoteModel] = relationship("CreditNoteModel", back_populates="lines")

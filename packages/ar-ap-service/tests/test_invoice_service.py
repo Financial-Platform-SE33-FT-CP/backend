@@ -15,16 +15,19 @@ from ar_ap_service.modules.ar_ap.application.dto import (
     UpdateInvoiceCommand,
 )
 from ar_ap_service.modules.ar_ap.application.services import InvoiceService
-from ar_ap_service.modules.ar_ap.domain.entities import Customer, InvoiceStatus
+from ar_ap_service.modules.ar_ap.domain.entities import Customer, GstSourceType, InvoiceStatus
 
 from .conftest import (
     AR_ACCOUNT_ID,
     EXPENSE_ACCOUNT_ID,
     GST_ACCOUNT_ID,
+    GST_INPUT_CODE_ID,
+    GST_OUTPUT_CODE_ID,
     REVENUE_ACCOUNT_2_ID,
     REVENUE_ACCOUNT_ID,
     TENANT_A,
     TENANT_B,
+    FakeGstRepository,
     FakeInvoiceRepository,
     FakeLedgerPoster,
 )
@@ -37,6 +40,7 @@ USER_ID = uuid4()
 def _command(
     customer_id, *, gst_rate="0.09", quantity="10", unit_price="100"
 ) -> CreateInvoiceCommand:
+    rate=Decimal(gst_rate)
     return CreateInvoiceCommand(
         customer_id=customer_id,
         issue_date=ISSUE_DATE,
@@ -47,6 +51,7 @@ def _command(
                 quantity=Decimal(quantity),
                 unit_price=Decimal(unit_price),
                 description="Consulting",
+                gst_code_id=GST_OUTPUT_CODE_ID if rate > 0 else None,
                 gst_rate=Decimal(gst_rate),
             )
         ],
@@ -111,6 +116,43 @@ async def test_issue_journal_entry_is_balanced(
     assert legs[str(GST_ACCOUNT_ID)].credit_amount == Decimal("90.00")
 
 
+@pytest.mark.asyncio
+async def test_issue_invoice_records_output_gst_transaction(
+    service: InvoiceService,
+    customer_a: Customer,
+    gst: FakeGstRepository,
+) -> None:
+    draft = await service.create_draft(
+        TENANT_A,
+        _command(customer_a.id),
+        USER_ID,
+    )
+
+    issued = await service.issue_invoice(
+        TENANT_A,
+        draft.id,
+        USER_ID,
+    )
+
+    transactions = await gst.list_transactions_by_period(
+        TENANT_A,
+        "2026-Q1",
+    )
+
+    assert len(transactions) == 1
+
+    transaction = transactions[0]
+
+    assert transaction.tenant_id == TENANT_A
+    assert transaction.source_type is GstSourceType.INVOICE
+    assert transaction.source_id == issued.id
+    assert transaction.gst_code_id == GST_OUTPUT_CODE_ID
+    assert transaction.taxable_amount == Decimal("1000.00")
+    assert transaction.gst_amount == Decimal("90.00")
+    assert transaction.reporting_period == "2026-Q1"
+    assert transaction.transaction_date == ISSUE_DATE
+
+
 # 5 — GST is computed correctly; no GST line when rate is zero
 @pytest.mark.asyncio
 async def test_zero_gst_has_no_gst_leg(
@@ -138,12 +180,14 @@ async def test_multiple_revenue_accounts_grouped(
                 account_id=REVENUE_ACCOUNT_ID,
                 quantity=Decimal("1"),
                 unit_price=Decimal("100"),
+                gst_code_id=GST_OUTPUT_CODE_ID,
                 gst_rate=Decimal("0.09"),
             ),
             InvoiceLineInput(
                 account_id=REVENUE_ACCOUNT_2_ID,
                 quantity=Decimal("2"),
                 unit_price=Decimal("50"),
+                gst_code_id=GST_OUTPUT_CODE_ID,
                 gst_rate=Decimal("0.09"),
             ),
         ],
@@ -201,7 +245,7 @@ async def test_list_is_scoped_to_tenant(
     service: InvoiceService, customer_a: Customer, customer_b: Customer
 ) -> None:
     await service.create_draft(TENANT_A, _command(customer_a.id), USER_ID)
-    await service.create_draft(TENANT_B, _command(customer_b.id), USER_ID)
+    await service.create_draft(TENANT_B, _command(customer_b.id, gst_rate="0"), USER_ID)
 
     assert len(await service.list_invoices(TENANT_A)) == 1
     assert len(await service.list_invoices(TENANT_B)) == 1
@@ -297,6 +341,38 @@ async def test_non_revenue_account_rejected(service: InvoiceService, customer_a:
 
 
 @pytest.mark.asyncio
+async def test_input_gst_code_rejected_for_invoice(
+    service: InvoiceService,
+    customer_a: Customer,
+) -> None:
+    command = CreateInvoiceCommand(
+        customer_id=customer_a.id,
+        issue_date=ISSUE_DATE,
+        due_date=DUE_DATE,
+        lines=[
+            InvoiceLineInput(
+                account_id=REVENUE_ACCOUNT_ID,
+                quantity=Decimal("1"),
+                unit_price=Decimal("100"),
+                description="Consulting",
+                gst_code_id=GST_INPUT_CODE_ID,
+                gst_rate=Decimal("0.09"),
+            )
+        ],
+    )
+
+    with pytest.raises(
+        ValidationError,
+        match="cannot be used on an invoice",
+    ):
+        await service.create_draft(
+            TENANT_A,
+            command,
+            USER_ID,
+        )
+
+
+@pytest.mark.asyncio
 async def test_unknown_customer_rejected(service: InvoiceService) -> None:
     with pytest.raises(ValidationError, match="Customer"):
         await service.create_draft(TENANT_A, _command(uuid4()), USER_ID)
@@ -315,6 +391,7 @@ async def test_update_recomputes_totals(service: InvoiceService, customer_a: Cus
                     account_id=REVENUE_ACCOUNT_ID,
                     quantity=Decimal("2"),
                     unit_price=Decimal("100"),
+                    gst_code_id=GST_OUTPUT_CODE_ID,
                     gst_rate=Decimal("0.09"),
                 )
             ]

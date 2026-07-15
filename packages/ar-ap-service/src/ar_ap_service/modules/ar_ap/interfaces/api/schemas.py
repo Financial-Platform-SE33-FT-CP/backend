@@ -12,10 +12,11 @@ from ar_ap_service.modules.ar_ap.domain.entities import (
     BankAccount,
     BankTransaction,
     Bill,
-    BillLine,
     BillPayment,
     BillSettlement,
     CreditNote,
+    GstCode,
+    GstSummary,
     Invoice,
     InvoiceSettlement,
     Payment,
@@ -32,6 +33,7 @@ class InvoiceLineRequest(BaseModel):
     quantity: Decimal = Field(gt=0)
     unit_price: Decimal = Field(ge=0)
     description: str | None = None
+    gst_code_id: UUID | None = None
     gst_rate: Decimal = Field(default=Decimal("0"), ge=0)
 
 
@@ -59,6 +61,7 @@ class InvoiceLineResponse(BaseModel):
     description: str | None
     quantity: Decimal
     unit_price: Decimal
+    gst_code_id: UUID | None
     gst_rate: Decimal
     line_total: Decimal
     gst_amount: Decimal
@@ -105,6 +108,7 @@ class InvoiceResponse(BaseModel):
                     description=line.description,
                     quantity=line.quantity,
                     unit_price=line.unit_price,
+                    gst_code_id=line.gst_code_id,
                     gst_rate=line.gst_rate,
                     line_total=line.line_total,
                     gst_amount=line.gst_amount,
@@ -198,6 +202,7 @@ class CreditNoteLineRequest(BaseModel):
     quantity: Decimal = Field(gt=0)
     unit_price: Decimal = Field(ge=0)
     description: str | None = None
+    gst_code_id: UUID | None = None
     gst_rate: Decimal = Field(default=Decimal("0"), ge=0)
     invoice_line_id: UUID | None = None
 
@@ -218,6 +223,7 @@ class CreditNoteLineResponse(BaseModel):
     description: str | None
     quantity: Decimal
     unit_price: Decimal
+    gst_code_id: UUID | None
     gst_rate: Decimal
     line_total: Decimal
     gst_amount: Decimal
@@ -265,6 +271,7 @@ class CreditNoteResponse(BaseModel):
                     description=line.description,
                     quantity=line.quantity,
                     unit_price=line.unit_price,
+                    gst_code_id=line.gst_code_id,
                     gst_rate=line.gst_rate,
                     line_total=line.line_total,
                     gst_amount=line.gst_amount,
@@ -382,6 +389,7 @@ class BillLineRequest(BaseModel):
     quantity: Decimal = Field(gt=0)
     unit_price: Decimal = Field(ge=0)
     description: str | None = None
+    gst_code_id: UUID | None = None
     gst_rate: Decimal = Field(default=Decimal("0"), ge=0)
 
 
@@ -409,6 +417,7 @@ class BillLineResponse(BaseModel):
     description: str | None
     quantity: Decimal
     unit_price: Decimal
+    gst_code_id: UUID | None
     gst_rate: Decimal
     line_total: Decimal
     gst_amount: Decimal
@@ -455,6 +464,7 @@ class BillResponse(BaseModel):
                     description=line.description,
                     quantity=line.quantity,
                     unit_price=line.unit_price,
+                    gst_code_id=line.gst_code_id,
                     gst_rate=line.gst_rate,
                     line_total=line.line_total,
                     gst_amount=line.gst_amount,
@@ -556,3 +566,47 @@ class APAgingLineResponse(BaseModel):
     outstanding: str
     days_overdue: int
     aging_bucket: str
+
+
+class GstCodeResponse(BaseModel):
+    """Tenant GST code returned to API clients."""
+
+    id: UUID
+    tenant_id: UUID
+    code: str
+    rate: Decimal
+    gst_kind: str
+    is_active: bool
+
+    @classmethod
+    def from_entity(cls, gst_code: GstCode) -> GstCodeResponse:
+        return cls(
+            id=gst_code.id,
+            tenant_id=gst_code.tenant_id,
+            code=gst_code.code,
+            rate=gst_code.rate,
+            gst_kind=gst_code.gst_kind.value,
+            is_active=gst_code.is_active,
+        )
+
+
+class GstSummaryResponse(BaseModel):
+    """Aggregated GST figures for one reporting period."""
+
+    reporting_period: str
+    output_tax: Decimal
+    input_tax: Decimal
+    net_gst_payable: Decimal
+    zero_rated_supplies: Decimal
+    exempt_supplies: Decimal
+
+    @classmethod
+    def from_entity(cls, summary: GstSummary) -> GstSummaryResponse:
+        return cls(
+            reporting_period=summary.reporting_period,
+            output_tax=summary.output_tax,
+            input_tax=summary.input_tax,
+            net_gst_payable=summary.net_gst_payable,
+            zero_rated_supplies=summary.zero_rated_supplies,
+            exempt_supplies=summary.exempt_supplies,
+        )

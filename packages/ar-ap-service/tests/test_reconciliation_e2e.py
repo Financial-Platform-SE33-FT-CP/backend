@@ -2,6 +2,7 @@
 
 Simulates the exact user manual testing flow using in-memory fakes.
 """
+
 from __future__ import annotations
 
 from datetime import date
@@ -30,11 +31,13 @@ from .conftest import (
     AR_ACCOUNT_ID,
     BANK_ACCOUNT_ID,
     GST_ACCOUNT_ID,
+    GST_OUTPUT_CODE_ID,
     REVENUE_ACCOUNT_ID,
     TENANT_A,
     FakeAccountReader,
     FakeBankTransactionRepository,
     FakeCustomerRepository,
+    FakeGstRepository,
     FakeInvoiceRepository,
     FakeLedgerPoster,
     FakePaymentRepository,
@@ -52,7 +55,9 @@ SETTINGS = ArApSettings(
 
 
 @pytest.mark.asyncio
-async def test_full_upload_csv_then_reconcile_e2e() -> None:
+async def test_full_upload_csv_then_reconcile_e2e(
+    gst: FakeGstRepository,
+) -> None:
     """Full E2E: upload CSV → create invoice → issue → suggest → reconcile → verify."""
     # Build fakes
     bank_txns = FakeBankTransactionRepository()
@@ -64,9 +69,15 @@ async def test_full_upload_csv_then_reconcile_e2e() -> None:
 
     # Seed accounts
     for tenant in (TENANT_A,):
-        accounts.seed(tenant, AccountInfo(AR_ACCOUNT_ID, "1100", "Accounts Receivable", "asset", True))
-        accounts.seed(tenant, AccountInfo(GST_ACCOUNT_ID, "2100", "GST Output Tax", "liability", True))
-        accounts.seed(tenant, AccountInfo(REVENUE_ACCOUNT_ID, "4000", "Sales Revenue", "revenue", True))
+        accounts.seed(
+            tenant, AccountInfo(AR_ACCOUNT_ID, "1100", "Accounts Receivable", "asset", True)
+        )
+        accounts.seed(
+            tenant, AccountInfo(GST_ACCOUNT_ID, "2100", "GST Output Tax", "liability", True)
+        )
+        accounts.seed(
+            tenant, AccountInfo(REVENUE_ACCOUNT_ID, "4000", "Sales Revenue", "revenue", True)
+        )
         accounts.seed(tenant, AccountInfo(BANK_ACCOUNT_ID, "1000", "Cash at Bank", "asset", True))
 
     # Seed customer
@@ -80,6 +91,7 @@ async def test_full_upload_csv_then_reconcile_e2e() -> None:
         invoices=invoices,
         customers=customers,
         accounts=accounts,
+        gst=gst,
         ledger=ledger,
         settings=SETTINGS,
     )
@@ -103,6 +115,7 @@ async def test_full_upload_csv_then_reconcile_e2e() -> None:
                 quantity=Decimal("10"),
                 unit_price=Decimal("100"),
                 description="Consulting",
+                gst_code_id=GST_OUTPUT_CODE_ID,
                 gst_rate=Decimal("0.09"),
             )
         ],
@@ -192,7 +205,9 @@ async def test_full_upload_csv_then_reconcile_e2e() -> None:
         # Suggestions for another unmatched txn should NOT include the paid invoice
         other_txn_id = still_unmatched[0].id
         suggestions_after = await reconciliation_svc.suggest_matches(TENANT_A, other_txn_id)
-        invoice_suggestions = [s for s in suggestions_after if s.match_type == "invoice" and s.match_id == invoice_id]
+        invoice_suggestions = [
+            s for s in suggestions_after if s.match_type == "invoice" and s.match_id == invoice_id
+        ]
         assert len(invoice_suggestions) == 0, (
             f"Paid invoice {invoice_id} should not appear in suggestions, "
             f"but found {len(invoice_suggestions)} suggestion(s)"

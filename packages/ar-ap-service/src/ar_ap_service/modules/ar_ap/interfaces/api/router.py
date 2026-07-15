@@ -24,11 +24,14 @@ from ar_ap_service.deps import (
     get_bill_service,
     get_credit_note_service,
     get_current_user_id,
+    get_gst_service,
     get_invoice_service,
     get_payment_service,
     get_reconciliation_service,
     require_tenant_id,
 )
+from ar_ap_service.modules.ar_ap.application.bank_statement import BankStatementService
+from ar_ap_service.modules.ar_ap.application.bill_service import BillService
 from ar_ap_service.modules.ar_ap.application.dto import (
     CreateInvoiceCommand,
     CreditNoteLineInput,
@@ -39,28 +42,23 @@ from ar_ap_service.modules.ar_ap.application.dto import (
     UpdateInvoiceCommand,
     UploadBankStatementCommand,
 )
-from ar_ap_service.modules.ar_ap.application.bank_statement import BankStatementService
-from ar_ap_service.modules.ar_ap.application.bill_service import BillService
 from ar_ap_service.modules.ar_ap.application.reconciliation import ReconciliationService
 from ar_ap_service.modules.ar_ap.application.services import (
     CreditNoteService,
+    GstService,
     InvoiceService,
     PaymentService,
 )
 from ar_ap_service.modules.ar_ap.domain.entities import (
     BankAccount,
-    Bill,
-    BillPayment,
     Customer,
     PaymentMethod,
-    Vendor,
 )
 from ar_ap_service.modules.ar_ap.interfaces.api.schemas import (
     APAgingLineResponse,
     BankAccountResponse,
     BankTransactionResponse,
     BillLineRequest,
-    BillLineResponse,
     BillPaymentResponse,
     BillResponse,
     BillSettlementResponse,
@@ -71,13 +69,15 @@ from ar_ap_service.modules.ar_ap.interfaces.api.schemas import (
     CreateVendorRequest,
     CreditNoteResponse,
     CustomerResponse,
+    GstCodeResponse,
+    GstSummaryResponse,
     InvoiceResponse,
     InvoiceSettlementResponse,
     IssueCreditNoteRequest,
     PayBillRequest,
     PaymentResponse,
-    ReconciliationSuggestionResponse,
     ReconcileTransactionRequest,
+    ReconciliationSuggestionResponse,
     RecordPaymentRequest,
     UpdateBillRequest,
     UpdateInvoiceRequest,
@@ -105,6 +105,7 @@ def _to_create_command(body: CreateInvoiceRequest) -> CreateInvoiceCommand:
                 quantity=line.quantity,
                 unit_price=line.unit_price,
                 description=line.description,
+                gst_code_id=line.gst_code_id,
                 gst_rate=line.gst_rate,
             )
             for line in body.lines
@@ -121,6 +122,7 @@ def _to_update_command(body: UpdateInvoiceRequest) -> UpdateInvoiceCommand:
                 quantity=line.quantity,
                 unit_price=line.unit_price,
                 description=line.description,
+                gst_code_id=line.gst_code_id,
                 gst_rate=line.gst_rate,
             )
             for line in body.lines
@@ -379,6 +381,7 @@ def _to_issue_credit_note_command(
                 quantity=line.quantity,
                 unit_price=line.unit_price,
                 description=line.description,
+                gst_code_id=line.gst_code_id,
                 gst_rate=line.gst_rate,
                 invoice_line_id=line.invoice_line_id,
             )
@@ -766,3 +769,65 @@ async def get_bill_settlement(
 ) -> BillSettlementResponse:
     total, paid = await service.get_bill_settlement(tenant_id, bill_id)
     return BillSettlementResponse.from_entity(bill_id, total, paid)
+
+
+# ── GST codes and reporting (US-15 / US-16) ──────────────────────────────────
+
+
+@router.get(
+    "/gst/codes",
+    response_model=list[GstCodeResponse],
+)
+async def list_gst_codes(
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[GstService, Depends(get_gst_service)],
+    active_only: bool = True,
+) -> list[GstCodeResponse]:
+    codes = await service.list_codes(tenant_id, active_only=active_only)
+    return [GstCodeResponse.from_entity(code) for code in codes]
+
+
+@router.post(
+    "/gst/codes/defaults",
+    response_model=list[GstCodeResponse],
+)
+async def initialize_default_gst_codes(
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_CREATE))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[GstService, Depends(get_gst_service)],
+) -> list[GstCodeResponse]:
+    codes = await service.ensure_default_codes(tenant_id)
+    return [GstCodeResponse.from_entity(code) for code in codes]
+
+
+@router.get(
+    "/gst/summary",
+    response_model=GstSummaryResponse,
+)
+async def get_gst_summary(
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[GstService, Depends(get_gst_service)],
+    reporting_period: Annotated[str, Query(min_length=1, max_length=32)],
+) -> GstSummaryResponse:
+    summary = await service.get_summary(tenant_id, reporting_period)
+    return GstSummaryResponse.from_entity(summary)
+
+
+@router.get(
+    "/gst/export",
+    response_class=Response,
+)
+async def export_gst_summary(
+    _: Annotated[None, Depends(RequireArApPermission(P_ACCOUNTING_READ))],
+    tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
+    service: Annotated[GstService, Depends(get_gst_service)],
+    reporting_period: Annotated[str, Query(min_length=1, max_length=32)],
+) -> Response:
+    csv_bytes, filename = await service.build_summary_csv(tenant_id, reporting_period)
+    return Response(
+        content=csv_bytes,
+        media_type="text/csv; charset=utf-8",
+        headers={"Content-Disposition": f'attachment; filename="{filename}"'},
+    )

@@ -94,7 +94,7 @@ async def test_build_invoice_pdf_rejects_draft(service, customer_a) -> None:
 async def test_build_invoice_pdf_for_issued_invoice(service, customer_a) -> None:
     from ar_ap_service.modules.ar_ap.application.dto import CreateInvoiceCommand, InvoiceLineInput
 
-    from .conftest import REVENUE_ACCOUNT_ID, TENANT_A
+    from .conftest import GST_OUTPUT_CODE_ID, REVENUE_ACCOUNT_ID, TENANT_A
 
     draft = await service.create_draft(
         TENANT_A,
@@ -107,6 +107,7 @@ async def test_build_invoice_pdf_for_issued_invoice(service, customer_a) -> None
                     account_id=REVENUE_ACCOUNT_ID,
                     quantity=Decimal("1"),
                     unit_price=Decimal("100"),
+                    gst_code_id=GST_OUTPUT_CODE_ID,
                     gst_rate=Decimal("0.09"),
                 )
             ],

@@ -18,13 +18,8 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from accounting_shared.exceptions import NotFoundError, ValidationError
-from ar_ap_service.modules.ar_ap.application.dto import ReconcileTransactionCommand
-
 from ar_ap_service.config import ArApSettings
-from ar_ap_service.modules.ar_ap.application.bank_statement import (
-    ParsedTransaction,
-    parse_bank_statement_csv,
-)
+from ar_ap_service.modules.ar_ap.application.dto import ReconcileTransactionCommand
 from ar_ap_service.modules.ar_ap.domain.entities import (
     BankTransaction,
     InvoiceStatus,

@@ -24,6 +24,7 @@ from ar_ap_service.modules.ar_ap.application.dto import (
 from ar_ap_service.modules.ar_ap.application.services import CreditNoteService
 from ar_ap_service.modules.ar_ap.domain.entities import (
     Customer,
+    GstSourceType,
     Invoice,
     InvoiceStatus,
 )
@@ -32,10 +33,13 @@ from .conftest import (
     AR_ACCOUNT_ID,
     EXPENSE_ACCOUNT_ID,
     GST_ACCOUNT_ID,
+    GST_INPUT_CODE_ID,
+    GST_OUTPUT_CODE_ID,
     REVENUE_ACCOUNT_ID,
     TENANT_A,
     TENANT_B,
     FakeCreditNoteRepository,
+    FakeGstRepository,
     FakeInvoiceRepository,
     FakeLedgerPoster,
 )
@@ -80,12 +84,15 @@ def _line(
     account_id: UUID = REVENUE_ACCOUNT_ID,
     invoice_line_id: UUID | None = None,
 ) -> CreditNoteLineInput:
+    rate=Decimal(gst_rate)
+
     return CreditNoteLineInput(
         account_id=account_id,
         quantity=Decimal(quantity),
         unit_price=Decimal(unit_price),
         description="Credit for consulting service",
-        gst_rate=Decimal(gst_rate),
+        gst_code_id=GST_OUTPUT_CODE_ID if rate > Decimal("0") else None,
+        gst_rate=rate,
         invoice_line_id=invoice_line_id,
     )
 
@@ -208,6 +215,82 @@ async def test_gst_amount_calculated_by_backend(
     assert credit_note.subtotal == Decimal("200.00")
     assert credit_note.gst_amount == Decimal("18.00")
     assert credit_note.total == Decimal("218.00")
+
+
+@pytest.mark.asyncio
+async def test_issue_credit_note_records_negative_output_gst_transaction(
+    credit_note_service: CreditNoteService,
+    invoices: FakeInvoiceRepository,
+    customer_a: Customer,
+    gst: FakeGstRepository,
+) -> None:
+    invoice = _seed_issued_invoice(
+        invoices,
+        customer_a.id,
+    )
+
+    credit_note = await credit_note_service.issue_credit_note(
+        TENANT_A,
+        invoice.id,
+        _command(_line("100.00")),
+        USER_ID,
+    )
+
+    transactions = await gst.list_transactions_by_period(
+        TENANT_A,
+        "2026-Q2",
+    )
+
+    assert len(transactions) == 1
+
+    transaction = transactions[0]
+
+    assert transaction.tenant_id == TENANT_A
+    assert transaction.source_type is GstSourceType.CREDIT_NOTE
+    assert transaction.source_id == credit_note.id
+    assert transaction.gst_code_id == GST_OUTPUT_CODE_ID
+    assert transaction.taxable_amount == Decimal("-100.00")
+    assert transaction.gst_amount == Decimal("-9.00")
+    assert transaction.reporting_period == "2026-Q2"
+    assert transaction.transaction_date == ISSUE_DATE
+
+
+@pytest.mark.asyncio
+async def test_input_gst_code_rejected_for_credit_note(
+    credit_note_service: CreditNoteService,
+    invoices: FakeInvoiceRepository,
+    customer_a: Customer,
+) -> None:
+    invoice = _seed_issued_invoice(
+        invoices,
+        customer_a.id,
+    )
+
+    command = IssueCreditNoteCommand(
+        issue_date=ISSUE_DATE,
+        reason="Invoice correction",
+        lines=[
+            CreditNoteLineInput(
+                account_id=REVENUE_ACCOUNT_ID,
+                quantity=Decimal("1"),
+                unit_price=Decimal("100"),
+                description="Credit for consulting service",
+                gst_code_id=GST_INPUT_CODE_ID,
+                gst_rate=Decimal("0.09"),
+            )
+        ],
+    )
+
+    with pytest.raises(
+        ValidationError,
+        match="cannot be used on a credit note",
+    ):
+        await credit_note_service.issue_credit_note(
+            TENANT_A,
+            invoice.id,
+            command,
+            USER_ID,
+        )
 
 
 # 6 — credit note number is generated and increments per tenant/year

@@ -14,7 +14,6 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 from accounting_shared.exceptions import ValidationError
-
 from ar_ap_service.modules.ar_ap.application.dto import UploadBankStatementCommand
 from ar_ap_service.modules.ar_ap.domain.entities import BankTransaction
 from ar_ap_service.modules.ar_ap.domain.repository import BankTransactionRepository

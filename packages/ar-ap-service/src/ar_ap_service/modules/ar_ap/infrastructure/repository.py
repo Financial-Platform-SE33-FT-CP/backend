@@ -9,11 +9,12 @@ so issuing an invoice and posting its journal entry commit atomically.
 
 from __future__ import annotations
 
+import contextlib
 import uuid
-from uuid import UUID
 from collections.abc import Sequence
-from datetime import date, datetime, timezone
+from datetime import UTC, date, datetime
 from decimal import Decimal
+from uuid import UUID
 
 from sqlalchemy import RowMapping, delete, func, select, text, update
 from sqlalchemy.ext.asyncio import AsyncSession
@@ -31,6 +32,10 @@ from ar_ap_service.modules.ar_ap.domain.entities import (
     CreditNoteLine,
     CreditNoteStatus,
     Customer,
+    GstCode,
+    GstKind,
+    GstSourceType,
+    GstTransaction,
     Invoice,
     InvoiceLine,
     InvoiceStatus,
@@ -47,6 +52,7 @@ from ar_ap_service.modules.ar_ap.domain.repository import (
     BillRepository,
     CreditNoteRepository,
     CustomerRepository,
+    GstRepository,
     InvoiceRepository,
     LedgerPoster,
     PaymentRepository,
@@ -61,12 +67,13 @@ from ar_ap_service.modules.ar_ap.infrastructure.models import (
     CreditNoteLineModel,
     CreditNoteModel,
     CustomerModel,
+    GstCodeModel,
+    GstTransactionModel,
     InvoiceLineModel,
     InvoiceModel,
     PaymentModel,
     VendorModel,
 )
-
 
 # chart_of_accounts.type may be stored as enum value ("revenue") or legacy name ("REVENUE").
 _ACCOUNT_TYPE_ALIASES: dict[str, str] = {
@@ -91,8 +98,8 @@ def _as_utc(dt: datetime | None) -> datetime | None:
     if dt is None:
         return None
     if dt.tzinfo is None:
-        return dt.replace(tzinfo=timezone.utc)
-    return dt.astimezone(timezone.utc)
+        return dt.replace(tzinfo=UTC)
+    return dt.astimezone(UTC)
 
 
 def _normalize_account_type(raw: str) -> str:
@@ -141,6 +148,7 @@ def _invoice_to_entity(model: InvoiceModel) -> Invoice:
                 quantity=line.quantity,
                 unit_price=line.unit_price,
                 description=line.description,
+                gst_code_id=line.gst_code_id,
                 gst_rate=line.gst_rate if line.gst_rate is not None else _ZERO,
                 line_total=line.line_total if line.line_total is not None else _ZERO,
                 gst_amount=line.gst_amount if line.gst_amount is not None else _ZERO,
@@ -159,12 +167,49 @@ def _apply_lines(model: InvoiceModel, invoice: Invoice) -> None:
             quantity=line.quantity,
             unit_price=line.unit_price,
             description=line.description,
+            gst_code_id=line.gst_code_id,
             gst_rate=line.gst_rate,
             line_total=line.line_total,
             gst_amount=line.gst_amount,
         )
         for line in invoice.lines
     ]
+
+
+def _gst_code_to_entity(model: GstCodeModel) -> GstCode:
+    return GstCode(
+        id=model.id,
+        tenant_id=model.tenant_id,
+        code=model.code,
+        rate=model.rate,
+        gst_kind=GstKind(model.gst_kind),
+        is_active=model.is_active,
+    )
+
+
+def _gst_transaction_to_entity(model: GstTransactionModel) -> GstTransaction:
+    if model.transaction_date is None:
+        msg = f"GST transaction {model.id} has no transaction date."
+        raise RuntimeError(msg)
+    if model.reporting_period is None:
+        msg = f"GST transaction {model.id} has no reporting period."
+        raise RuntimeError(msg)
+    if model.gst_code_id is None:
+        msg = f"GST transaction {model.id} has no GST code."
+        raise RuntimeError(msg)
+
+    return GstTransaction(
+        id=model.id,
+        tenant_id=model.tenant_id,
+        source_type=GstSourceType(model.source_type),
+        source_id=model.source_id,
+        gst_code_id=model.gst_code_id,
+        taxable_amount=model.taxable_amount,
+        gst_amount=model.gst_amount,
+        reporting_period=model.reporting_period,
+        transaction_date=model.transaction_date,
+        created_at=model.created_at,
+    )
 
 
 class SqlAlchemyInvoiceRepository(InvoiceRepository):
@@ -511,6 +556,7 @@ def _credit_note_to_entity(model: CreditNoteModel) -> CreditNote:
                 quantity=line.quantity,
                 unit_price=line.unit_price,
                 description=line.description,
+                gst_code_id=line.gst_code_id,
                 gst_rate=line.gst_rate if line.gst_rate is not None else _ZERO,
                 line_total=line.line_total if line.line_total is not None else _ZERO,
                 gst_amount=line.gst_amount if line.gst_amount is not None else _ZERO,
@@ -556,6 +602,7 @@ class SqlAlchemyCreditNoteRepository(CreditNoteRepository):
                 quantity=line.quantity,
                 unit_price=line.unit_price,
                 description=line.description,
+                gst_code_id=line.gst_code_id,
                 gst_rate=line.gst_rate,
                 line_total=line.line_total,
                 gst_amount=line.gst_amount,
@@ -661,6 +708,93 @@ class SqlAlchemyCreditNoteRepository(CreditNoteRepository):
         result = await self._session.execute(stmt)
         model = result.scalar_one_or_none()
         return _credit_note_to_entity(model) if model is not None else None
+
+
+class SqlAlchemyGstRepository(GstRepository):
+    """GST code and reporting transaction persistence."""
+
+    def __init__(self, session: AsyncSession) -> None:
+        self._session = session
+
+    async def get_code_by_id(self, tenant_id: uuid.UUID, gst_code_id: uuid.UUID) -> GstCode | None:
+        stmt = select(GstCodeModel).where(
+            GstCodeModel.id == gst_code_id,
+            GstCodeModel.tenant_id == tenant_id,
+        )
+        result = await self._session.execute(stmt)
+        model = result.scalar_one_or_none()
+        return _gst_code_to_entity(model) if model is not None else None
+
+    async def list_codes(self, tenant_id: uuid.UUID, *, active_only: bool = True) -> list[GstCode]:
+        stmt = (
+            select(GstCodeModel)
+            .where(GstCodeModel.tenant_id == tenant_id)
+            .order_by(GstCodeModel.code.asc())
+        )
+        if active_only:
+            stmt = stmt.where(GstCodeModel.is_active.is_(True))
+        result = await self._session.execute(stmt)
+        return [_gst_code_to_entity(model) for model in result.scalars().all()]
+
+    async def add_codes(self, codes: Sequence[GstCode]) -> list[GstCode]:
+        if not codes:
+            return []
+        models = [
+            GstCodeModel(
+                id=code.id,
+                tenant_id=code.tenant_id,
+                code=code.code,
+                rate=code.rate,
+                gst_kind=code.gst_kind.value,
+                is_active=code.is_active,
+            )
+            for code in codes
+        ]
+        self._session.add_all(models)
+        await self._session.flush()
+        return list(codes)
+
+    async def add_transactions(
+        self, transactions: Sequence[GstTransaction]
+    ) -> list[GstTransaction]:
+        if not transactions:
+            return []
+        models = [
+            GstTransactionModel(
+                id=transaction.id,
+                tenant_id=transaction.tenant_id,
+                source_type=transaction.source_type.value,
+                source_id=transaction.source_id,
+                gst_code_id=transaction.gst_code_id,
+                taxable_amount=transaction.taxable_amount,
+                gst_amount=transaction.gst_amount,
+                reporting_period=transaction.reporting_period,
+                transaction_date=transaction.transaction_date,
+                created_at=transaction.created_at,
+            )
+            for transaction in transactions
+        ]
+        self._session.add_all(models)
+        await self._session.flush()
+        return list(transactions)
+
+    async def list_transactions_by_period(
+        self, tenant_id: uuid.UUID, reporting_period: str
+    ) -> list[GstTransaction]:
+        stmt = (
+            select(GstTransactionModel)
+            .where(
+                GstTransactionModel.tenant_id == tenant_id,
+                GstTransactionModel.reporting_period == reporting_period,
+            )
+            .order_by(
+                GstTransactionModel.transaction_date.asc(),
+                GstTransactionModel.created_at.asc(),
+                GstTransactionModel.id.asc(),
+            )
+        )
+        result = await self._session.execute(stmt)
+        return [_gst_transaction_to_entity(model) for model in result.scalars().all()]
 
 
 class SqlAccountReader(AccountReader):
@@ -929,7 +1063,7 @@ def _bank_txn_to_entity(model: BankTransactionModel) -> BankTransaction:
         upload_batch_id=model.upload_batch_id,
         reconciliation_entity_type=model.reconciliation_entity_type,
         reconciliation_entity_id=model.reconciliation_entity_id,
-        created_at=_as_utc(model.created_at) if model.created_at else datetime.now(timezone.utc),  # type: ignore[arg-type]
+        created_at=_as_utc(model.created_at) if model.created_at else datetime.now(UTC),  # type: ignore[arg-type]
     )
 
 
@@ -1208,10 +1342,8 @@ class SqlAlchemyBillPaymentRepository(BillPaymentRepository):
 
 def _bill_to_entity(model: BillModel) -> Bill:
     status = BillStatus.DRAFT
-    try:
+    with contextlib.suppress(ValueError):
         status = BillStatus(model.status)
-    except ValueError:
-        pass
     return Bill(
         id=model.id,
         tenant_id=model.tenant_id,
@@ -1225,7 +1357,7 @@ def _bill_to_entity(model: BillModel) -> Bill:
         total=model.total or Decimal("0"),
         journal_entry_id=model.journal_entry_id,
         created_by=model.created_by,
-        created_at=_as_utc(model.created_at) if model.created_at else datetime.now(timezone.utc),  # type: ignore[arg-type]
+        created_at=_as_utc(model.created_at) if model.created_at else datetime.now(UTC),  # type: ignore[arg-type]
         updated_at=_as_utc(model.updated_at) if model.updated_at else None,
         lines=[
             BillLine(
@@ -1235,6 +1367,7 @@ def _bill_to_entity(model: BillModel) -> Bill:
                 description=line.description,
                 quantity=line.quantity or Decimal("1"),
                 unit_price=line.unit_price or (line.amount if line.amount else Decimal("0")),
+                gst_code_id=line.gst_code_id,
                 gst_rate=line.gst_rate or Decimal("0"),
                 line_total=line.line_total or (line.amount if line.amount else Decimal("0")),
                 gst_amount=line.gst_amount or Decimal("0"),
@@ -1256,6 +1389,7 @@ def _apply_bill_lines(model: BillModel, bill: Bill) -> None:
                 quantity=line.quantity,
                 unit_price=line.unit_price,
                 amount=line.line_total,
+                gst_code_id=line.gst_code_id,
                 gst_rate=line.gst_rate,
                 line_total=line.line_total,
                 gst_amount=line.gst_amount,
@@ -1265,10 +1399,8 @@ def _apply_bill_lines(model: BillModel, bill: Bill) -> None:
 
 def _bill_payment_to_entity(model: BillPaymentModel) -> BillPayment:
     pm = PaymentMethod.OTHER
-    try:
+    with contextlib.suppress(ValueError):
         pm = PaymentMethod(model.payment_method)
-    except ValueError:
-        pass
     return BillPayment(
         id=model.id,
         bill_id=model.bill_id,
@@ -1281,5 +1413,5 @@ def _bill_payment_to_entity(model: BillPaymentModel) -> BillPayment:
         payment_account_id=model.payment_account_id,
         journal_entry_id=model.journal_entry_id,
         created_by=model.created_by,
-        created_at=_as_utc(model.created_at) if model.created_at else datetime.now(timezone.utc),  # type: ignore[arg-type]
+        created_at=_as_utc(model.created_at) if model.created_at else datetime.now(UTC),  # type: ignore[arg-type]
     )

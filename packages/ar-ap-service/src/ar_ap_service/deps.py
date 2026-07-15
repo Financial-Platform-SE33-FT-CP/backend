@@ -28,6 +28,7 @@ from ar_ap_service.modules.ar_ap.application.bill_service import BillService
 from ar_ap_service.modules.ar_ap.application.reconciliation import ReconciliationService
 from ar_ap_service.modules.ar_ap.application.services import (
     CreditNoteService,
+    GstService,
     InvoiceService,
     PaymentService,
 )
@@ -39,6 +40,7 @@ from ar_ap_service.modules.ar_ap.infrastructure.repository import (
     SqlAlchemyBillRepository,
     SqlAlchemyCreditNoteRepository,
     SqlAlchemyCustomerRepository,
+    SqlAlchemyGstRepository,
     SqlAlchemyInvoiceRepository,
     SqlAlchemyPaymentRepository,
     SqlAlchemyVendorRepository,
@@ -176,6 +178,7 @@ async def get_invoice_service(
         invoices=SqlAlchemyInvoiceRepository(session),
         customers=SqlAlchemyCustomerRepository(session),
         accounts=SqlAccountReader(session),
+        gst=SqlAlchemyGstRepository(session),
         ledger=SqlLedgerPoster(session),
         settings=settings,
     )
@@ -204,9 +207,16 @@ async def get_credit_note_service(
         invoices=SqlAlchemyInvoiceRepository(session),
         customers=SqlAlchemyCustomerRepository(session),
         accounts=SqlAccountReader(session),
+        gst=SqlAlchemyGstRepository(session),
         ledger=SqlLedgerPoster(session),
         settings=settings,
     )
+
+
+async def get_gst_service(
+    session: AsyncSession = Depends(get_async_session),
+) -> GstService:
+    return GstService(gst=SqlAlchemyGstRepository(session))
 
 
 async def get_bank_transaction_repository(
@@ -251,6 +261,7 @@ async def get_bill_service(
         bills=SqlAlchemyBillRepository(session),
         vendors=SqlAlchemyVendorRepository(session),
         accounts=SqlAccountReader(session),
+        gst=SqlAlchemyGstRepository(session),
         ledger=SqlLedgerPoster(session),
         bill_payments=SqlAlchemyBillPaymentRepository(session),
     )
