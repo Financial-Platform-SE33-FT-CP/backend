@@ -54,14 +54,6 @@ def upgrade() -> None:
         ondelete="RESTRICT",
     )
     op.create_foreign_key(
-        "fk_payments_deposit_account_id",
-        "payments",
-        "chart_of_accounts",
-        ["deposit_account_id"],
-        ["id"],
-        ondelete="RESTRICT",
-    )
-    op.create_foreign_key(
         "fk_payments_journal_entry_id",
         "payments",
         "journal_entries",

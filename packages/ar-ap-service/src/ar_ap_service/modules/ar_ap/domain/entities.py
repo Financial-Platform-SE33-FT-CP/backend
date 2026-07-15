@@ -323,9 +323,51 @@ class CreditNote:
         self.total = _money(self.subtotal + self.gst_amount)
 
 
-class BillStatus(StrEnum):
-    """Lifecycle of a vendor bill (US-11 / US-12)."""
+@dataclass
+class BankAccount:
+    """A tenant's bank account."""
 
+    id: UUID = field(default_factory=uuid4)
+    tenant_id: UUID | None = None
+    name: str = ""
+    account_number: str = ""
+    currency: str = "SGD"
+    opening_balance: Decimal = _ZERO
+
+
+@dataclass
+class BankTransaction:
+    """A single bank statement line item (US-13/US-14)."""
+
+    id: UUID = field(default_factory=uuid4)
+    tenant_id: UUID | None = None
+    bank_account_id: UUID | None = None
+    transaction_date: date | None = None
+    description: str | None = None
+    amount: Decimal = _ZERO
+    matched: bool = False
+    journal_entry_id: str | None = None
+    checksum_hash: str | None = None
+    upload_batch_id: UUID | None = None
+    reconciliation_entity_type: str | None = None
+    reconciliation_entity_id: UUID | None = None
+    created_at: datetime = field(default_factory=datetime.utcnow)
+
+
+@dataclass
+class ReconciliationSuggestion:
+    """A suggested match between a bank transaction and an invoice/payment (US-14)."""
+
+    bank_transaction_id: UUID
+    match_type: str  # "invoice", "payment"
+    match_id: UUID
+    match_label: str  # e.g. "INV-0001"
+    match_amount: Decimal
+    difference: Decimal
+    confidence: str  # "exact", "partial", "suggested"
+
+
+class BillStatus(StrEnum):
     DRAFT = "draft"
     OPEN = "open"
     PARTIAL = "partial"
@@ -333,19 +375,8 @@ class BillStatus(StrEnum):
     VOID = "void"
 
 
-POSTED_BILL_STATUSES: frozenset[BillStatus] = frozenset(
-    {
-        BillStatus.OPEN,
-        BillStatus.PARTIAL,
-        BillStatus.PAID,
-    }
-)
-
-
 @dataclass
 class BillLine:
-    """A single line on a vendor bill."""
-
     account_id: UUID
     quantity: Decimal
     unit_price: Decimal
@@ -365,8 +396,6 @@ class BillLine:
 
 @dataclass
 class Bill:
-    """A vendor bill aggregate with its lines."""
-
     id: UUID = field(default_factory=uuid4)
     tenant_id: UUID | None = None
     vendor_id: UUID | None = None
@@ -385,7 +414,7 @@ class Bill:
 
     @property
     def is_posted(self) -> bool:
-        return self.status in POSTED_BILL_STATUSES
+        return self.status in (BillStatus.OPEN, BillStatus.PARTIAL, BillStatus.PAID)
 
     def recalculate_totals(self) -> None:
         subtotal = _ZERO
@@ -401,18 +430,25 @@ class Bill:
 
 @dataclass
 class Vendor:
-    """A tenant's vendor (bill counterparty)."""
-
     id: UUID = field(default_factory=uuid4)
     tenant_id: UUID | None = None
     name: str = ""
     email: str | None = None
 
 
+@dataclass(frozen=True)
+class BillSettlement:
+    bill_total: Decimal
+    amount_paid: Decimal
+
+    @property
+    def outstanding(self) -> Decimal:
+        remaining = self.bill_total - self.amount_paid
+        return remaining if remaining > _ZERO else _ZERO
+
+
 @dataclass
 class BillPayment:
-    """A payment recorded against a posted vendor bill (US-12)."""
-
     bill_id: UUID
     amount: Decimal
     payment_account_id: UUID | None
@@ -426,31 +462,3 @@ class BillPayment:
     idempotency_key: str | None = None
     created_by: UUID | None = None
     created_at: datetime = field(default_factory=datetime.utcnow)
-
-
-@dataclass(frozen=True)
-class BillSettlement:
-    """Snapshot of how much of a bill has been paid."""
-
-    bill_total: Decimal
-    amount_paid: Decimal
-
-    @property
-    def outstanding(self) -> Decimal:
-        remaining = self.bill_total - self.amount_paid
-        return remaining if remaining > _ZERO else _ZERO
-
-
-@dataclass(frozen=True)
-class APAgingLine:
-    """One open bill row for AP aging (US-12)."""
-
-    bill_id: UUID
-    vendor_id: UUID | None
-    bill_number: str
-    due_date: date | None
-    bill_total: Decimal
-    amount_paid: Decimal
-    outstanding: Decimal
-    days_overdue: int
-    aging_bucket: str

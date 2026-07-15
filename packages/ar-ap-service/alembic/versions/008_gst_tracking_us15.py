@@ -13,7 +13,7 @@ a GST code through application-level validation.
 
 Prerequisite migrations on the same database: tenant (tenants), coa
 (chart_of_accounts), ledger (journal_entries), and
-ar_ap_007_bill_payment_us12.
+ar_ap_007_bill_payments.
 """
 
 from __future__ import annotations
@@ -22,7 +22,7 @@ import sqlalchemy as sa
 from alembic import op
 
 revision = "ar_ap_008_gst_tracking_us15"
-down_revision = "ar_ap_007_bill_payment_us12"
+down_revision = "ar_ap_007_bill_payments"
 branch_labels = None
 depends_on = None
 

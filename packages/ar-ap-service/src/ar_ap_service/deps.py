@@ -23,9 +23,10 @@ from accounting_shared.http_internal import post_json
 from accounting_shared.middleware.tenant_context import get_current_tenant_id
 from accounting_shared.types import TenantId, UserId
 from ar_ap_service.config import ArApSettings
+from ar_ap_service.modules.ar_ap.application.bank_statement import BankStatementService
+from ar_ap_service.modules.ar_ap.application.bill_service import BillService
+from ar_ap_service.modules.ar_ap.application.reconciliation import ReconciliationService
 from ar_ap_service.modules.ar_ap.application.services import (
-    BillPaymentService,
-    BillService,
     CreditNoteService,
     GstService,
     InvoiceService,
@@ -33,6 +34,8 @@ from ar_ap_service.modules.ar_ap.application.services import (
 )
 from ar_ap_service.modules.ar_ap.infrastructure.repository import (
     SqlAccountReader,
+    SqlAlchemyBankAccountRepository,
+    SqlAlchemyBankTransactionRepository,
     SqlAlchemyBillPaymentRepository,
     SqlAlchemyBillRepository,
     SqlAlchemyCreditNoteRepository,
@@ -213,9 +216,41 @@ async def get_credit_note_service(
 async def get_gst_service(
     session: AsyncSession = Depends(get_async_session),
 ) -> GstService:
-    return GstService(
-        gst=SqlAlchemyGstRepository(session),
+    return GstService(gst=SqlAlchemyGstRepository(session))
+
+
+async def get_bank_transaction_repository(
+    session: AsyncSession = Depends(get_async_session),
+) -> SqlAlchemyBankTransactionRepository:
+    return SqlAlchemyBankTransactionRepository(session)
+
+
+async def get_bank_statement_service(
+    bank_txn_repo: SqlAlchemyBankTransactionRepository = Depends(get_bank_transaction_repository),
+) -> BankStatementService:
+    return BankStatementService(bank_txn_repo=bank_txn_repo)
+
+
+async def get_reconciliation_service(
+    bank_txn_repo: SqlAlchemyBankTransactionRepository = Depends(get_bank_transaction_repository),
+    session: AsyncSession = Depends(get_async_session),
+    settings: ArApSettings = Depends(get_settings),
+) -> ReconciliationService:
+    return ReconciliationService(
+        bank_txn_repo=bank_txn_repo,
+        invoice_repo=SqlAlchemyInvoiceRepository(session),
+        payment_repo=SqlAlchemyPaymentRepository(session),
+        ledger_poster=SqlLedgerPoster(session),
+        bill_repo=SqlAlchemyBillRepository(session),
+        accounts=SqlAccountReader(session),
+        settings=settings,
     )
+
+
+async def get_bank_account_repository(
+    session: AsyncSession = Depends(get_async_session),
+) -> SqlAlchemyBankAccountRepository:
+    return SqlAlchemyBankAccountRepository(session)
 
 
 async def get_bill_service(
@@ -228,19 +263,5 @@ async def get_bill_service(
         accounts=SqlAccountReader(session),
         gst=SqlAlchemyGstRepository(session),
         ledger=SqlLedgerPoster(session),
-        settings=settings,
-    )
-
-
-async def get_bill_payment_service(
-    session: AsyncSession = Depends(get_async_session),
-    settings: ArApSettings = Depends(get_settings),
-) -> BillPaymentService:
-    return BillPaymentService(
         bill_payments=SqlAlchemyBillPaymentRepository(session),
-        bills=SqlAlchemyBillRepository(session),
-        vendors=SqlAlchemyVendorRepository(session),
-        accounts=SqlAccountReader(session),
-        ledger=SqlLedgerPoster(session),
-        settings=settings,
     )

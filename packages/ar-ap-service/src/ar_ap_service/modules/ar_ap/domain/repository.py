@@ -10,6 +10,8 @@ from uuid import UUID
 
 from ar_ap_service.modules.ar_ap.domain.entities import (
     AccountInfo,
+    BankAccount,
+    BankTransaction,
     Bill,
     BillPayment,
     CreditNote,
@@ -157,80 +159,6 @@ class CreditNoteRepository(ABC):
         """Return an existing credit note for an idempotency key, if any."""
 
 
-class BillRepository(ABC):
-    """Persistence port for vendor bills and their lines (always tenant-scoped)."""
-
-    @abstractmethod
-    async def get_by_id(self, tenant_id: UUID, bill_id: UUID) -> Bill | None: ...
-
-    @abstractmethod
-    async def list_by_tenant(
-        self,
-        tenant_id: UUID,
-        *,
-        status: str | None = None,
-        vendor_id: UUID | None = None,
-        issued_from: date | None = None,
-        issued_to: date | None = None,
-    ) -> list[Bill]: ...
-
-    @abstractmethod
-    async def add(self, bill: Bill) -> Bill: ...
-
-    @abstractmethod
-    async def update(self, bill: Bill) -> Bill: ...
-
-    @abstractmethod
-    async def delete(self, bill: Bill) -> None: ...
-
-    @abstractmethod
-    async def count_with_number_prefix(self, tenant_id: UUID, prefix: str) -> int: ...
-
-
-class VendorRepository(ABC):
-    """Persistence port for vendors."""
-
-    @abstractmethod
-    async def get_by_id(self, tenant_id: UUID, vendor_id: UUID) -> Vendor | None: ...
-
-    @abstractmethod
-    async def list_by_tenant(self, tenant_id: UUID) -> list[Vendor]: ...
-
-    @abstractmethod
-    async def add(self, vendor: Vendor) -> Vendor: ...
-
-
-class BillPaymentRepository(ABC):
-    """Persistence port for bill payments (immutable, US-12)."""
-
-    @abstractmethod
-    async def add(self, payment: BillPayment) -> BillPayment: ...
-
-    @abstractmethod
-    async def get_by_id(self, tenant_id: UUID, payment_id: UUID) -> BillPayment | None: ...
-
-    @abstractmethod
-    async def list_by_bill(self, tenant_id: UUID, bill_id: UUID) -> list[BillPayment]: ...
-
-    @abstractmethod
-    async def list_by_tenant(
-        self,
-        tenant_id: UUID,
-        *,
-        bill_id: UUID | None = None,
-        vendor_id: UUID | None = None,
-        payment_method: str | None = None,
-        date_from: date | None = None,
-        date_to: date | None = None,
-    ) -> list[BillPayment]: ...
-
-    @abstractmethod
-    async def sum_paid_for_bill(self, tenant_id: UUID, bill_id: UUID) -> Decimal: ...
-
-    @abstractmethod
-    async def get_by_idempotency_key(self, tenant_id: UUID, key: str) -> BillPayment | None: ...
-
-
 class GstRepository(ABC):
     """Persistence port for tenant GST codes and GST reporting transactions."""
 
@@ -318,3 +246,127 @@ class LedgerPoster(ABC):
         reverses or adjusts another (e.g. a credit note against an invoice's
         journal entry) without ever mutating the original.
         """
+
+
+class BankAccountRepository(ABC):
+    """Persistence port for bank accounts."""
+
+    @abstractmethod
+    async def get_by_id(self, tenant_id: UUID, account_id: UUID) -> BankAccount | None: ...
+
+    @abstractmethod
+    async def list_by_tenant(self, tenant_id: UUID) -> list[BankAccount]: ...
+
+    @abstractmethod
+    async def add(self, account: BankAccount) -> BankAccount: ...
+
+
+class BankTransactionRepository(ABC):
+    """Persistence port for bank transactions (US-13/US-14).
+
+    Bank transactions are immutable after upload — only the ``matched``,
+    ``journal_entry_id``, ``reconciliation_entity_type``, and
+    ``reconciliation_entity_id`` fields may be updated during reconciliation.
+    """
+
+    @abstractmethod
+    async def add_many(
+        self, tenant_id: UUID, transactions: list[BankTransaction]
+    ) -> list[BankTransaction]:
+        """Persist a batch of new bank transactions."""
+
+    @abstractmethod
+    async def get_by_id(self, tenant_id: UUID, transaction_id: UUID) -> BankTransaction | None:
+        """Return a bank transaction, or ``None`` if not in this tenant."""
+
+    @abstractmethod
+    async def list_unmatched(
+        self,
+        tenant_id: UUID,
+        *,
+        bank_account_id: UUID | None = None,
+    ) -> list[BankTransaction]:
+        """List a tenant's unmatched bank transactions, newest first."""
+
+    @abstractmethod
+    async def list_matched(
+        self,
+        tenant_id: UUID,
+        *,
+        bank_account_id: UUID | None = None,
+    ) -> list[BankTransaction]:
+        """List a tenant's matched/reconciled transactions, newest first."""
+
+    @abstractmethod
+    async def list_by_batch(self, tenant_id: UUID, batch_id: UUID) -> list[BankTransaction]:
+        """List transactions from a specific upload batch."""
+
+    @abstractmethod
+    async def exists_by_hash(self, tenant_id: UUID, checksum_hash: str) -> bool:
+        """Return True if a transaction with this hash already exists (duplicate check)."""
+
+    @abstractmethod
+    async def update_reconciliation(
+        self,
+        tenant_id: UUID,
+        transaction_id: UUID,
+        *,
+        matched: bool,
+        journal_entry_id: str | None,
+        reconciliation_entity_type: str | None = None,
+        reconciliation_entity_id: UUID | None = None,
+    ) -> None:
+        """Update reconciliation status for a bank transaction."""
+
+
+class BillRepository(ABC):
+    @abstractmethod
+    async def get_by_id(self, tenant_id: UUID, bill_id: UUID) -> Bill | None: ...
+
+    @abstractmethod
+    async def list_by_tenant(
+        self,
+        tenant_id: UUID,
+        *,
+        status: str | None = None,
+        vendor_id: UUID | None = None,
+        issued_from: date | None = None,
+        issued_to: date | None = None,
+    ) -> list[Bill]: ...
+
+    @abstractmethod
+    async def add(self, bill: Bill) -> Bill: ...
+
+    @abstractmethod
+    async def update(self, bill: Bill) -> Bill: ...
+
+    @abstractmethod
+    async def delete(self, bill: Bill) -> None: ...
+
+    @abstractmethod
+    async def count_with_number_prefix(self, tenant_id: UUID, prefix: str) -> int: ...
+
+
+class VendorRepository(ABC):
+    @abstractmethod
+    async def get_by_id(self, tenant_id: UUID, vendor_id: UUID) -> Vendor | None: ...
+
+    @abstractmethod
+    async def list_by_tenant(self, tenant_id: UUID) -> list[Vendor]: ...
+
+    @abstractmethod
+    async def add(self, vendor: Vendor) -> Vendor: ...
+
+
+class BillPaymentRepository(ABC):
+    @abstractmethod
+    async def add(self, payment: BillPayment) -> BillPayment: ...
+
+    @abstractmethod
+    async def list_by_bill(self, tenant_id: UUID, bill_id: UUID) -> list[BillPayment]: ...
+
+    @abstractmethod
+    async def sum_paid_for_bill(self, tenant_id: UUID, bill_id: UUID) -> Decimal: ...
+
+    @abstractmethod
+    async def get_by_idempotency_key(self, tenant_id: UUID, key: str) -> BillPayment | None: ...

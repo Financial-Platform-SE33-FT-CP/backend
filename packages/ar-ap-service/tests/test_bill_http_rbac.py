@@ -62,29 +62,33 @@ class _StubBillService:
     async def create_draft(
         self,
         tenant_id,
-        command,
+        vendor_id,
+        *,
+        issue_date,
+        due_date,
+        lines_input,
         created_by,
     ) -> Bill:
         lines: list[BillLine] = []
 
-        for raw in command.lines:
+        for raw in lines_input:
             line = BillLine(
-                account_id=raw.account_id,
-                quantity=raw.quantity,
-                unit_price=raw.unit_price,
-                description=raw.description,
-                gst_code_id=raw.gst_code_id,
-                gst_rate=raw.gst_rate,
+                account_id=raw["account_id"],
+                quantity=raw["quantity"],
+                unit_price=raw["unit_price"],
+                description=raw.get("description"),
+                gst_code_id=raw.get("gst_code_id"),
+                gst_rate=raw["gst_rate"],
             )
             line.recalculate()
             lines.append(line)
 
         bill = Bill(
             tenant_id=tenant_id,
-            vendor_id=command.vendor_id,
+            vendor_id=vendor_id,
             bill_number="",
-            issue_date=command.issue_date,
-            due_date=command.due_date,
+            issue_date=issue_date,
+            due_date=due_date,
             status=BillStatus.DRAFT,
             created_by=created_by,
             lines=lines,
@@ -116,9 +120,7 @@ async def client(
 
     import ar_ap_service.main as main_mod
 
-    main_mod.app.dependency_overrides[get_bill_service] = (
-        lambda: _StubBillService()
-    )
+    main_mod.app.dependency_overrides[get_bill_service] = lambda: _StubBillService()
 
     transport = ASGITransport(app=main_mod.app)
 
@@ -153,6 +155,4 @@ async def test_authorized_user_can_create_bill_with_gst_code(
     assert body["subtotal"] == "100.00"
     assert body["gst_amount"] == "9.00"
     assert body["total"] == "109.00"
-    assert body["lines"][0]["gst_code_id"] == str(
-        GST_INPUT_CODE_ID
-    )
+    assert body["lines"][0]["gst_code_id"] == str(GST_INPUT_CODE_ID)

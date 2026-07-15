@@ -4,18 +4,20 @@ from __future__ import annotations
 
 import re
 import uuid
+from datetime import datetime
 
 from accounting_shared.exceptions import BadRequestError, ValidationError
 from accounting_shared.rbac import (
     P_TENANT_MEMBER_ADD,
     P_TENANT_MEMBER_LIST,
     P_TENANT_MEMBER_REMOVE,
+    P_TENANT_MEMBER_ROLE_UPDATE,
     normalize_role,
     tenant_role_to_frontend_api,
 )
 from accounting_shared.types import TenantId, UserId
 from fastapi import APIRouter, Depends, HTTPException, status
-from pydantic import BaseModel, EmailStr, Field
+from pydantic import BaseModel, ConfigDict, EmailStr, Field
 
 from tenant_service.deps import (
     RequireTenantPermissions,
@@ -231,3 +233,43 @@ async def portal_remove_member(
 ) -> None:
     tid = TenantId(tenant_id)
     await service.remove_member(tid, UserId(member_user_id), user_id)
+
+
+class PortalUpdateRoleRequest(BaseModel):
+    model_config = ConfigDict(extra="forbid")
+    role: str
+
+
+@router.patch(
+    "/{tenant_id}/users/{member_user_id}",
+    response_model=PortalMemberResponseSchema,
+)
+async def portal_update_member_role(
+    tenant_id: uuid.UUID,
+    member_user_id: uuid.UUID,
+    body: PortalUpdateRoleRequest,
+    service: TenantService = Depends(get_tenant_service),
+    user_id: UserId = Depends(get_current_user_id),
+    _: object = Depends(RequireTenantPermissions(P_TENANT_MEMBER_ROLE_UPDATE)),
+) -> PortalMemberResponseSchema:
+    from tenant_service.modules.tenants.application.dto import UpdateMemberRoleRequest
+
+    tid = TenantId(tenant_id)
+    dto = UpdateMemberRoleRequest(role=body.role)
+    sid = str(tenant_id)
+    try:
+        result = await service.update_member_role(tid, UserId(member_user_id), dto, user_id)
+    except BadRequestError as e:
+        raise HTTPException(status_code=status.HTTP_400_BAD_REQUEST, detail=str(e)) from e
+    except ValidationError as e:
+        raise HTTPException(
+            status_code=status.HTTP_422_UNPROCESSABLE_CONTENT, detail=e.detail
+        ) from e
+    return PortalMemberResponseSchema(
+        id=str(member_user_id),
+        tenant_id=sid,
+        user_id=str(member_user_id),
+        email=result.email,
+        role=tenant_role_to_frontend_api(normalize_role(result.role)),
+        created_at=datetime.now().isoformat(),
+    )

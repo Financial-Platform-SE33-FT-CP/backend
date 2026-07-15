@@ -140,8 +140,12 @@ class OpeningSubledgerWriter:
                 bill_id=bill.id,
                 description=line.description or "Opening balance",
                 account_id=exp_id,
+                quantity=Decimal("1"),
+                unit_price=line.amount,
                 amount=line.amount,
                 gst_rate=Decimal("0"),
+                line_total=line.amount,
+                gst_amount=Decimal("0"),
             )
             self._session.add(bill_line)
             count += 1

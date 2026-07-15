@@ -1,4 +1,4 @@
-"""US-11 bill recording tests (service layer with in-memory fakes)."""
+"""Bill recording and GST integration tests for the merged Epic 7 service."""
 
 from __future__ import annotations
 
@@ -9,8 +9,7 @@ from uuid import UUID, uuid4
 import pytest
 
 from accounting_shared.exceptions import ConflictError, NotFoundError, ValidationError
-from ar_ap_service.modules.ar_ap.application.dto import BillLineInput, CreateBillCommand
-from ar_ap_service.modules.ar_ap.application.services import BillService
+from ar_ap_service.modules.ar_ap.application.bill_service import BillService
 from ar_ap_service.modules.ar_ap.domain.entities import Bill, BillStatus, GstSourceType, Vendor
 
 from .conftest import (
@@ -31,29 +30,36 @@ DUE_DATE = date(2026, 4, 30)
 USER_ID = uuid4()
 
 
-def _line(**kwargs) -> BillLineInput:
-    gst_rate = kwargs.pop("gst_rate", Decimal("0.09"))
-    gst_code_id = kwargs.pop(
+def _line(**overrides: object) -> dict[str, object]:
+    gst_rate = Decimal(str(overrides.pop("gst_rate", Decimal("0.09"))))
+    gst_code_id = overrides.pop(
         "gst_code_id",
         GST_INPUT_CODE_ID if gst_rate > Decimal("0") else None,
     )
-    
-    return BillLineInput(
-        account_id=kwargs.pop("account_id", EXPENSE_ACCOUNT_ID),
-        quantity=kwargs.pop("quantity", Decimal("1")),
-        unit_price=kwargs.pop("unit_price", Decimal("100")),
-        description=kwargs.pop("description", "Office supplies"),
-        gst_code_id=gst_code_id,
-        gst_rate=gst_rate,
-    )
+    return {
+        "account_id": overrides.pop("account_id", EXPENSE_ACCOUNT_ID),
+        "quantity": overrides.pop("quantity", Decimal("1")),
+        "unit_price": overrides.pop("unit_price", Decimal("100")),
+        "description": overrides.pop("description", "Office supplies"),
+        "gst_code_id": gst_code_id,
+        "gst_rate": gst_rate,
+        **overrides,
+    }
 
 
-def _create_command(vendor_id: UUID, *, gst_rate: Decimal = Decimal("0.09")) -> CreateBillCommand:
-    return CreateBillCommand(
-        vendor_id=vendor_id,
+async def _create_draft(
+    bill_service: BillService,
+    vendor_id: UUID,
+    *,
+    gst_rate: Decimal = Decimal("0.09"),
+) -> Bill:
+    return await bill_service.create_draft(
+        TENANT_A,
+        vendor_id,
         issue_date=BILL_DATE,
         due_date=DUE_DATE,
-        lines=[_line(gst_rate=gst_rate)],
+        lines_input=[_line(gst_rate=gst_rate)],
+        created_by=USER_ID,
     )
 
 
@@ -62,11 +68,13 @@ async def test_create_draft_bill(
     bill_service: BillService,
     vendor_a: Vendor,
 ) -> None:
-    bill = await bill_service.create_draft(TENANT_A, _create_command(vendor_a.id), USER_ID)
+    bill = await _create_draft(bill_service, vendor_a.id)
+
     assert bill.status == BillStatus.DRAFT
-    assert bill.total == Decimal("109.00")
-    assert bill.gst_amount == Decimal("9.00")
     assert bill.subtotal == Decimal("100.00")
+    assert bill.gst_amount == Decimal("9.00")
+    assert bill.total == Decimal("109.00")
+    assert bill.lines[0].gst_code_id == GST_INPUT_CODE_ID
 
 
 @pytest.mark.asyncio
@@ -74,9 +82,12 @@ async def test_create_bill_without_gst(
     bill_service: BillService,
     vendor_a: Vendor,
 ) -> None:
-    bill = await bill_service.create_draft(
-        TENANT_A, _create_command(vendor_a.id, gst_rate=Decimal("0")), USER_ID
+    bill = await _create_draft(
+        bill_service,
+        vendor_a.id,
+        gst_rate=Decimal("0"),
     )
+
     assert bill.gst_amount == Decimal("0.00")
     assert bill.total == Decimal("100.00")
 
@@ -87,33 +98,35 @@ async def test_record_bill_posts_balanced_journal(
     vendor_a: Vendor,
     ledger: FakeLedgerPoster,
 ) -> None:
-    draft = await bill_service.create_draft(TENANT_A, _create_command(vendor_a.id), USER_ID)
+    draft = await _create_draft(bill_service, vendor_a.id)
     recorded = await bill_service.record_bill(TENANT_A, draft.id, USER_ID)
 
     assert recorded.status == BillStatus.OPEN
-    assert recorded.bill_number.startswith("BILL-2026-")
+    assert recorded.bill_number.startswith("BILL-")
     assert recorded.journal_entry_id is not None
     assert len(ledger.posted) == 1
+
     entry = ledger.posted[0]
     assert entry["total_debit"] == entry["total_credit"] == Decimal("109.00")
     assert entry["source_type"] == "bill"
 
 
 @pytest.mark.asyncio
-async def test_record_bill_debits_expense_gst_credits_ap(
+async def test_record_bill_debits_expense_gst_and_credits_ap(
     bill_service: BillService,
     vendor_a: Vendor,
     ledger: FakeLedgerPoster,
 ) -> None:
-    draft = await bill_service.create_draft(TENANT_A, _create_command(vendor_a.id), USER_ID)
+    draft = await _create_draft(bill_service, vendor_a.id)
     await bill_service.record_bill(TENANT_A, draft.id, USER_ID)
 
     lines = ledger.posted[0]["lines"]
     expense = next(line for line in lines if line.account_id == str(EXPENSE_ACCOUNT_ID))
-    gst = next(line for line in lines if line.account_id == str(GST_INPUT_ACCOUNT_ID))
+    gst_line = next(line for line in lines if line.account_id == str(GST_INPUT_ACCOUNT_ID))
     ap = next(line for line in lines if line.account_id == str(AP_ACCOUNT_ID))
+
     assert expense.debit_amount == Decimal("100.00")
-    assert gst.debit_amount == Decimal("9.00")
+    assert gst_line.debit_amount == Decimal("9.00")
     assert ap.credit_amount == Decimal("109.00")
 
 
@@ -123,27 +136,13 @@ async def test_record_bill_records_input_gst_transaction(
     vendor_a: Vendor,
     gst: FakeGstRepository,
 ) -> None:
-    draft = await bill_service.create_draft(
-        TENANT_A,
-        _create_command(vendor_a.id),
-        USER_ID,
-    )
+    draft = await _create_draft(bill_service, vendor_a.id)
+    recorded = await bill_service.record_bill(TENANT_A, draft.id, USER_ID)
 
-    recorded = await bill_service.record_bill(
-        TENANT_A,
-        draft.id,
-        USER_ID,
-    )
-
-    transactions = await gst.list_transactions_by_period(
-        TENANT_A,
-        "2026-Q2",
-    )
+    transactions = await gst.list_transactions_by_period(TENANT_A, "2026-Q2")
 
     assert len(transactions) == 1
-
     transaction = transactions[0]
-
     assert transaction.tenant_id == TENANT_A
     assert transaction.source_type is GstSourceType.BILL
     assert transaction.source_id == recorded.id
@@ -159,9 +158,10 @@ async def test_cannot_record_bill_twice(
     bill_service: BillService,
     vendor_a: Vendor,
 ) -> None:
-    draft = await bill_service.create_draft(TENANT_A, _create_command(vendor_a.id), USER_ID)
+    draft = await _create_draft(bill_service, vendor_a.id)
     await bill_service.record_bill(TENANT_A, draft.id, USER_ID)
-    with pytest.raises(ConflictError, match="already been recorded"):
+
+    with pytest.raises(ConflictError, match="already recorded"):
         await bill_service.record_bill(TENANT_A, draft.id, USER_ID)
 
 
@@ -170,7 +170,14 @@ async def test_missing_vendor_rejected(
     bill_service: BillService,
 ) -> None:
     with pytest.raises(ValidationError, match="Vendor not found"):
-        await bill_service.create_draft(TENANT_A, _create_command(uuid4()), USER_ID)
+        await bill_service.create_draft(
+            TENANT_A,
+            uuid4(),
+            issue_date=BILL_DATE,
+            due_date=DUE_DATE,
+            lines_input=[_line()],
+            created_by=USER_ID,
+        )
 
 
 @pytest.mark.asyncio
@@ -178,26 +185,19 @@ async def test_output_gst_code_rejected_for_bill(
     bill_service: BillService,
     vendor_a: Vendor,
 ) -> None:
-    command = CreateBillCommand(
-        vendor_id=vendor_a.id,
-        issue_date=BILL_DATE,
-        due_date=DUE_DATE,
-        lines=[
-            _line(
-                gst_code_id=GST_OUTPUT_CODE_ID,
-                gst_rate=Decimal("0.09"),
-            )
-        ],
-    )
-
-    with pytest.raises(
-        ValidationError,
-        match="cannot be used on a bill",
-    ):
+    with pytest.raises(ValidationError, match="cannot be used on a bill"):
         await bill_service.create_draft(
             TENANT_A,
-            command,
-            USER_ID,
+            vendor_a.id,
+            issue_date=BILL_DATE,
+            due_date=DUE_DATE,
+            lines_input=[
+                _line(
+                    gst_code_id=GST_OUTPUT_CODE_ID,
+                    gst_rate=Decimal("0.09"),
+                )
+            ],
+            created_by=USER_ID,
         )
 
 
@@ -210,12 +210,13 @@ async def test_tenant_isolation_on_get(
     bill = Bill(
         tenant_id=TENANT_A,
         vendor_id=vendor_a.id,
-        bill_number="BILL-2026-0001",
+        bill_number="BILL-0001",
         issue_date=BILL_DATE,
         due_date=DUE_DATE,
         status=BillStatus.OPEN,
         total=Decimal("100.00"),
     )
     bills._store[bill.id] = bill
+
     with pytest.raises(NotFoundError):
         await bill_service.get_bill(TENANT_B, bill.id)

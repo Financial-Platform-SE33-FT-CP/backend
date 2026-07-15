@@ -1,32 +1,31 @@
 """Test configuration and in-memory fakes for AR/AP Service.
 
-Business logic for US-8 lives in ``InvoiceService`` behind repository/poster
-ports, so we exercise it with deterministic in-memory fakes instead of a real
-database. This mirrors the repo's existing mock-driven AR/AP tests and keeps the
-suite fast and dialect-independent.
+Business logic lives behind repository and ledger ports, so the service suite
+uses deterministic in-memory fakes instead of a real database.
 """
 
 from __future__ import annotations
 
 import copy
+from collections.abc import Sequence
 from datetime import date
 from decimal import Decimal
 from uuid import UUID, uuid4
-from collections.abc import Sequence
 
 import pytest
 
 from ar_ap_service.config import ArApSettings
+from ar_ap_service.modules.ar_ap.application.bank_statement import BankStatementService
+from ar_ap_service.modules.ar_ap.application.bill_service import BillService
+from ar_ap_service.modules.ar_ap.application.reconciliation import ReconciliationService
 from ar_ap_service.modules.ar_ap.application.services import (
-    BillPaymentService,
-    BillService,
     CreditNoteService,
-    GstService,
     InvoiceService,
     PaymentService,
 )
 from ar_ap_service.modules.ar_ap.domain.entities import (
     AccountInfo,
+    BankTransaction,
     Bill,
     BillPayment,
     CreditNote,
@@ -41,6 +40,7 @@ from ar_ap_service.modules.ar_ap.domain.entities import (
 )
 from ar_ap_service.modules.ar_ap.domain.repository import (
     AccountReader,
+    BankTransactionRepository,
     BillPaymentRepository,
     BillRepository,
     CreditNoteRepository,
@@ -213,7 +213,7 @@ class FakeLedgerPoster(LedgerPoster):
             }
         )
         return entry_id
-    
+
 
 class FakeGstRepository(GstRepository):
     """In-memory GST repository used by service tests."""
@@ -243,15 +243,11 @@ class FakeGstRepository(GstRepository):
         codes = [
             code
             for code in self._codes.values()
-            if code.tenant_id == tenant_id
-            and (not active_only or code.is_active)
+            if code.tenant_id == tenant_id and (not active_only or code.is_active)
         ]
 
-        return [
-            copy.deepcopy(code)
-            for code in sorted(codes, key=lambda item: item.code)
-        ]
-    
+        return [copy.deepcopy(code) for code in sorted(codes, key=lambda item: item.code)]
+
     async def add_codes(
         self,
         codes: Sequence[GstCode],
@@ -269,10 +265,7 @@ class FakeGstRepository(GstRepository):
         self,
         transactions: Sequence[GstTransaction],
     ) -> list[GstTransaction]:
-        saved = [
-            copy.deepcopy(transaction)
-            for transaction in transactions
-        ]
+        saved = [copy.deepcopy(transaction) for transaction in transactions]
         self._transactions.extend(saved)
         return copy.deepcopy(saved)
 
@@ -286,7 +279,7 @@ class FakeGstRepository(GstRepository):
             for transaction in self._transactions
             if transaction.tenant_id == tenant_id
             and transaction.reporting_period == reporting_period
-        ]    
+        ]
 
 
 @pytest.fixture
@@ -571,7 +564,9 @@ class FakeBillRepository(BillRepository):
                 continue
             if vendor_id is not None and bill.vendor_id != vendor_id:
                 continue
-            if issued_from is not None and (bill.issue_date is None or bill.issue_date < issued_from):
+            if issued_from is not None and (
+                bill.issue_date is None or bill.issue_date < issued_from
+            ):
                 continue
             if issued_to is not None and (bill.issue_date is None or bill.issue_date > issued_to):
                 continue
@@ -706,7 +701,7 @@ def bill_service(
     accounts: FakeAccountReader,
     gst: FakeGstRepository,
     ledger: FakeLedgerPoster,
-    settings: ArApSettings,
+    bill_payments: FakeBillPaymentRepository,
 ) -> BillService:
     return BillService(
         bills=bills,
@@ -714,32 +709,13 @@ def bill_service(
         accounts=accounts,
         gst=gst,
         ledger=ledger,
-        settings=settings,
+        bill_payments=bill_payments,
     )
 
 
 @pytest.fixture
 def vendor_a(vendors: FakeVendorRepository) -> Vendor:
     return next(v for v in vendors._store.values() if v.tenant_id == TENANT_A)
-
-
-@pytest.fixture
-def bill_payment_service(
-    bill_payments: FakeBillPaymentRepository,
-    bills: FakeBillRepository,
-    vendors: FakeVendorRepository,
-    accounts: FakeAccountReader,
-    ledger: FakeLedgerPoster,
-    settings: ArApSettings,
-) -> BillPaymentService:
-    return BillPaymentService(
-        bill_payments=bill_payments,
-        bills=bills,
-        vendors=vendors,
-        accounts=accounts,
-        ledger=ledger,
-        settings=settings,
-    )
 
 
 @pytest.fixture
@@ -802,9 +778,120 @@ def gst() -> FakeGstRepository:
         ),
     ]
 
-    repository._codes = {
-        code.id: code
-        for code in codes
-    }
+    repository._codes = {code.id: code for code in codes}
 
     return repository
+
+
+class FakeBankTransactionRepository(BankTransactionRepository):
+    """In-memory fake for bank transaction persistence (US-13/US-14)."""
+
+    def __init__(self) -> None:
+        self._store: dict[UUID, BankTransaction] = {}
+
+    async def add_many(
+        self, tenant_id: UUID, transactions: list[BankTransaction]
+    ) -> list[BankTransaction]:
+        for txn in transactions:
+            self._store[txn.id] = copy.deepcopy(txn)
+        return [copy.deepcopy(t) for t in transactions]
+
+    async def get_by_id(self, tenant_id: UUID, transaction_id: UUID) -> BankTransaction | None:
+        txn = self._store.get(transaction_id)
+        if txn is None or txn.tenant_id != tenant_id:
+            return None
+        return copy.deepcopy(txn)
+
+    async def list_unmatched(
+        self,
+        tenant_id: UUID,
+        *,
+        bank_account_id: UUID | None = None,
+    ) -> list[BankTransaction]:
+        result = []
+        for txn in self._store.values():
+            if txn.tenant_id != tenant_id or txn.matched:
+                continue
+            if bank_account_id is not None and txn.bank_account_id != bank_account_id:
+                continue
+            result.append(copy.deepcopy(txn))
+        return result
+
+    async def list_matched(
+        self,
+        tenant_id: UUID,
+        *,
+        bank_account_id: UUID | None = None,
+    ) -> list[BankTransaction]:
+        result = []
+        for txn in self._store.values():
+            if txn.tenant_id != tenant_id or not txn.matched:
+                continue
+            if bank_account_id is not None and txn.bank_account_id != bank_account_id:
+                continue
+            result.append(copy.deepcopy(txn))
+        return result
+
+    async def list_by_batch(self, tenant_id: UUID, batch_id: UUID) -> list[BankTransaction]:
+        return [
+            copy.deepcopy(t)
+            for t in self._store.values()
+            if t.tenant_id == tenant_id and t.upload_batch_id == batch_id
+        ]
+
+    async def exists_by_hash(self, tenant_id: UUID, checksum_hash: str) -> bool:
+        return any(
+            t.tenant_id == tenant_id and t.checksum_hash == checksum_hash
+            for t in self._store.values()
+        )
+
+    async def update_reconciliation(
+        self,
+        tenant_id: UUID,
+        transaction_id: UUID,
+        *,
+        matched: bool,
+        journal_entry_id: str | None,
+        reconciliation_entity_type: str | None = None,
+        reconciliation_entity_id: UUID | None = None,
+    ) -> None:
+        txn = self._store.get(transaction_id)
+        if txn is None or txn.tenant_id != tenant_id:
+            return
+        txn.matched = matched
+        txn.journal_entry_id = journal_entry_id
+        txn.reconciliation_entity_type = reconciliation_entity_type
+        txn.reconciliation_entity_id = reconciliation_entity_id
+
+
+@pytest.fixture
+def bank_transactions() -> FakeBankTransactionRepository:
+    return FakeBankTransactionRepository()
+
+
+@pytest.fixture
+def bank_statement_service(
+    bank_transactions: FakeBankTransactionRepository,
+) -> BankStatementService:
+    return BankStatementService(bank_txn_repo=bank_transactions)
+
+
+@pytest.fixture
+def reconciliation_service(
+    bank_transactions: FakeBankTransactionRepository,
+    invoices: FakeInvoiceRepository,
+    payments: FakePaymentRepository,
+    bills: FakeBillRepository,
+    ledger: FakeLedgerPoster,
+    accounts: FakeAccountReader,
+    settings: ArApSettings,
+) -> ReconciliationService:
+    return ReconciliationService(
+        bank_txn_repo=bank_transactions,
+        invoice_repo=invoices,
+        payment_repo=payments,
+        ledger_poster=ledger,
+        bill_repo=bills,
+        accounts=accounts,
+        settings=settings,
+    )
