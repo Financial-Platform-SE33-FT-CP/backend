@@ -22,8 +22,10 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 
 from coa_service.modules.coa.infrastructure.models import AccountModel
 from ledger_service.modules.ledger.infrastructure.models import (
+    AccountingPeriodModel,
     JournalEntryLineModel,
     JournalEntryModel,
+    MonthlyAccountBalanceModel,
 )
 
 # --- shared constants ---
@@ -66,12 +68,16 @@ async def tables(engine):
             AccountModel.__table__.create(sync_conn, checkfirst=True)
             JournalEntryModel.__table__.create(sync_conn, checkfirst=True)
             JournalEntryLineModel.__table__.create(sync_conn, checkfirst=True)
+            MonthlyAccountBalanceModel.__table__.create(sync_conn, checkfirst=True)
+            AccountingPeriodModel.__table__.create(sync_conn, checkfirst=True)
 
         await conn.run_sync(create_journal_tables)
     yield
     async with engine.begin() as conn:
 
         def drop_journal_tables(sync_conn) -> None:
+            AccountingPeriodModel.__table__.drop(sync_conn, checkfirst=True)
+            MonthlyAccountBalanceModel.__table__.drop(sync_conn, checkfirst=True)
             JournalEntryLineModel.__table__.drop(sync_conn, checkfirst=True)
             JournalEntryModel.__table__.drop(sync_conn, checkfirst=True)
             AccountModel.__table__.drop(sync_conn, checkfirst=True)

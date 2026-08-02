@@ -23,7 +23,11 @@ from accounting_shared.http_internal import post_json
 from accounting_shared.middleware.tenant_context import get_current_tenant_id
 from accounting_shared.types import TenantId, UserId
 from ledger_service.config import LedgerSettings
+from ledger_service.modules.ledger.application.report_service import ReportService
 from ledger_service.modules.ledger.application.services import LedgerService
+from ledger_service.modules.ledger.infrastructure.report_repository import (
+    SqlAlchemyReportRepository,
+)
 from ledger_service.modules.ledger.infrastructure.repository import (
     SqlAlchemyAccountingPeriodRepository,
     SqlAlchemyJournalEntryRepository,
@@ -156,3 +160,10 @@ async def get_ledger_service(
     journal_repo = SqlAlchemyJournalEntryRepository(session)
     period_repo = SqlAlchemyAccountingPeriodRepository(session)
     return LedgerService(journal_repo, period_repo)
+
+
+async def get_report_service(
+    session: AsyncSession = Depends(get_async_session),
+) -> ReportService:
+    report_repo = SqlAlchemyReportRepository(session)
+    return ReportService(report_repo)

@@ -12,6 +12,9 @@ from accounting_shared.logging import setup_logging
 from accounting_shared.middleware.request_id import RequestIDMiddleware
 from accounting_shared.middleware.tenant_context import TenantContextMiddleware
 from ledger_service.deps import get_settings
+from ledger_service.modules.ledger.interfaces.api.reports_router import (
+    router as reports_router,
+)
 from ledger_service.modules.ledger.interfaces.api.router import router as ledger_router
 from ledger_service.modules.opening_balance.infrastructure.orm_registry import (
     register_opening_balance_orm_metadata,
@@ -66,6 +69,7 @@ def create_app() -> FastAPI:
 
     app.include_router(ledger_router, prefix="/ledger")
     app.include_router(opening_balance_router, prefix="/ledger")
+    app.include_router(reports_router, prefix="/ledger/reports")
 
     return app
 
