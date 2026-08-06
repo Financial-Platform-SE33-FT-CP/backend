@@ -66,6 +66,7 @@ class AccountLedgerTransactionResponse(BaseModel):
     line_description: str | None
     debit_amount: Decimal
     credit_amount: Decimal
+    created_at: datetime
     running_balance: Decimal
 
 

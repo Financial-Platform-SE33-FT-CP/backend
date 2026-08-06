@@ -1,6 +1,7 @@
 """Subscription plan definitions shared across services."""
 
 from enum import StrEnum
+from typing import TypedDict
 
 
 class PlanTier(StrEnum):
@@ -9,7 +10,13 @@ class PlanTier(StrEnum):
     PRO = "pro"
 
 
-PLAN_LIMITS: dict[PlanTier, dict] = {
+class PlanLimits(TypedDict):
+    max_users: int | None
+    max_monthly_invoices: int | None
+    features: list[str]
+
+
+PLAN_LIMITS: dict[PlanTier, PlanLimits] = {
     PlanTier.STARTER: {
         "max_users": 3,
         "max_monthly_invoices": 100,

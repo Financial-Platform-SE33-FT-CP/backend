@@ -161,8 +161,7 @@ async def get_audit_client() -> AuditHttpClient:
     settings = get_settings()
     return AuditHttpClient(
         audit_service_url=settings.audit_service_url,
-        internal_token=settings.audit_internal_api_token
-        or settings.tenant_internal_api_token,
+        internal_token=settings.audit_internal_api_token or settings.tenant_internal_api_token,
     )
 
 

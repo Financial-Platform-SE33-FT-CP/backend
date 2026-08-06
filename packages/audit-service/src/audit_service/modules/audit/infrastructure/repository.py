@@ -44,18 +44,20 @@ class SqlAlchemyAuditLogRepository(AuditLogRepository):
         if entity_type:
             stmt = stmt.where(AuditLogModel.entity_type == entity_type)
         if from_date is not None:
-            stmt = stmt.where(
-                AuditLogModel.timestamp >= datetime.combine(from_date, time.min)
-            )
+            stmt = stmt.where(AuditLogModel.timestamp >= datetime.combine(from_date, time.min))
         if to_date is not None:
             # Inclusive of the whole day: timestamps < midnight of the day after.
             stmt = stmt.where(
                 AuditLogModel.timestamp < datetime.combine(to_date + timedelta(days=1), time.min)
             )
-        stmt = stmt.order_by(
-            AuditLogModel.timestamp.desc(),
-            AuditLogModel.id.desc(),
-        ).limit(limit).offset(offset)
+        stmt = (
+            stmt.order_by(
+                AuditLogModel.timestamp.desc(),
+                AuditLogModel.id.desc(),
+            )
+            .limit(limit)
+            .offset(offset)
+        )
         result = await self._session.execute(stmt)
         return [_to_entity(model) for model in result.scalars().all()]
 
