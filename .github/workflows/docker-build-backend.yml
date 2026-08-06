@@ -30,6 +30,7 @@ jobs:
           - ledger-service
           - audit-service
           - ar-ap-service
+          - billing-service
 
     permissions:
       contents: read

@@ -181,11 +181,12 @@ async def get_plan(
     }
 
 
-# ── Stripe Checkout ────────────────────────────────────────────────────
+# ── Stripe Checkout / Plan Changes ─────────────────────────────────────
 
 
+@router.post("/change-plan")
 @router.post("/create-checkout-session")
-async def create_checkout_session(
+async def change_plan(
     request: Request,
     tenant_id: Annotated[str, Depends(get_current_tenant_id_str)],
     session: Annotated[AsyncSession, Depends(get_async_session)],
@@ -206,10 +207,93 @@ async def create_checkout_session(
     if tenant is None:
         raise HTTPException(status_code=404, detail="Tenant not found.")
 
+    price_id = settings.stripe_price_ids.get(f"{plan.value}_monthly", "")
+    if not price_id and not (settings.stripe_mock_mode or not settings.stripe_secret_key):
+        raise HTTPException(status_code=500, detail="Price ID not configured.")
+
+    updated_url = f"{settings.frontend_url}/billing?updated=true"
+
+    # An existing Stripe subscription must be updated in place. Creating a new
+    # checkout session here would leave the old subscription active as well.
+    if tenant.stripe_subscription_id:
+        if settings.stripe_mock_mode or not settings.stripe_secret_key:
+            tenant.plan_tier = plan_tier
+            await session.flush()
+            return {"url": updated_url, "changed": True}
+
+        stripe_lib.api_key = settings.stripe_secret_key
+        try:
+            subscription = stripe_lib.Subscription.retrieve(tenant.stripe_subscription_id)
+        except stripe_lib.error.InvalidRequestError as e:
+            if getattr(e, "http_status", None) != 404:
+                raise HTTPException(
+                    status_code=502,
+                    detail="Unable to retrieve the existing Stripe subscription.",
+                ) from e
+            tenant.stripe_subscription_id = None
+        except stripe_lib.error.StripeError as e:
+            raise HTTPException(
+                status_code=502,
+                detail="Unable to retrieve the existing Stripe subscription.",
+            ) from e
+        else:
+            subscription_status = _event_string(subscription, "status")
+            if subscription_status not in {"canceled", "incomplete_expired"}:
+                subscription_items = _event_value(subscription, "items")
+                subscription_item_data = _event_value(subscription_items, "data")
+                if (
+                    not isinstance(subscription_item_data, (list, tuple))
+                    or not subscription_item_data
+                ):
+                    raise HTTPException(
+                        status_code=502,
+                        detail="Existing Stripe subscription has no billable item.",
+                    )
+                subscription_item_id = _event_string(subscription_item_data[0], "id")
+                if not subscription_item_id:
+                    raise HTTPException(
+                        status_code=502,
+                        detail="Existing Stripe subscription has no billable item.",
+                    )
+
+                try:
+                    updated_subscription = stripe_lib.Subscription.modify(
+                        tenant.stripe_subscription_id,
+                        items=[{"id": subscription_item_id, "price": price_id}],
+                        proration_behavior="create_prorations",
+                        metadata={"tenant_id": str(tenant_id), "plan_tier": plan_tier},
+                    )
+                except stripe_lib.error.StripeError as e:
+                    raise HTTPException(
+                        status_code=502,
+                        detail="Unable to update the existing Stripe subscription.",
+                    ) from e
+
+                tenant.plan_tier = plan_tier
+                updated_status = _event_string(updated_subscription, "status")
+                status_map = {
+                    "trialing": "trial",
+                    "active": "active",
+                    "past_due": "past_due",
+                    "unpaid": "past_due",
+                    "canceled": "canceled",
+                    "incomplete_expired": "expired",
+                }
+                if updated_status in status_map:
+                    tenant.subscription_status = status_map[updated_status]
+                await session.flush()
+                return {"url": updated_url, "changed": True}
+
+            # Stripe has removed the subscription. A new checkout is safe now.
+            tenant.stripe_subscription_id = None
+
     if settings.stripe_mock_mode or not settings.stripe_secret_key:
         # Mock mode: return a fake URL
         fake_session_id = str(uuid.uuid4())
-        return {"url": f"{settings.frontend_url}/billing?mock_session={fake_session_id}"}
+        return {
+            "url": f"{settings.frontend_url}/billing?mock_session={fake_session_id}",
+            "changed": False,
+        }
 
     stripe_lib.api_key = settings.stripe_secret_key
 
@@ -219,10 +303,6 @@ async def create_checkout_session(
         )
         tenant.stripe_customer_id = customer.id
         await session.flush()
-
-    price_id = settings.stripe_price_ids.get(f"{plan.value}_monthly", "")
-    if not price_id:
-        raise HTTPException(status_code=500, detail="Price ID not configured.")
 
     checkout_session = stripe_lib.checkout.Session.create(
         customer=tenant.stripe_customer_id,
@@ -235,7 +315,7 @@ async def create_checkout_session(
         subscription_data={"metadata": {"tenant_id": str(tenant_id), "plan_tier": plan_tier}},
     )
 
-    return {"url": checkout_session.url}
+    return {"url": checkout_session.url, "changed": False}
 
 
 # ── Stripe Webhook ─────────────────────────────────────────────────────
