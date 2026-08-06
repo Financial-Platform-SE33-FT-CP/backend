@@ -40,5 +40,6 @@ jobs:
             - `ghcr.io/Financial-Platform-SE33-FT-CP/accounting-platform-ledger-service:${{ github.ref_name }}`
             - `ghcr.io/Financial-Platform-SE33-FT-CP/accounting-platform-audit-service:${{ github.ref_name }}`
             - `ghcr.io/Financial-Platform-SE33-FT-CP/accounting-platform-ar-ap-service:${{ github.ref_name }}`
+            - `ghcr.io/Financial-Platform-SE33-FT-CP/accounting-platform-billing-service:${{ github.ref_name }}`
             - `ghcr.io/Financial-Platform-SE33-FT-CP/accounting-platform-frontend:${{ github.ref_name }}`
           generate_release_notes: true
