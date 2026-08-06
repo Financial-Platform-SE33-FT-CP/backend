@@ -9,6 +9,7 @@ from uuid import UUID
 from fastapi import APIRouter, Depends, Header, Query, status
 from fastapi.responses import Response
 
+from accounting_shared.audit_client import AuditHttpClient, CreateAuditLogDTO
 from accounting_shared.rbac import (
     P_ACCOUNTING_CREATE,
     P_ACCOUNTING_DELETE,
@@ -19,6 +20,7 @@ from accounting_shared.rbac import (
 from accounting_shared.types import TenantId, UserId
 from ar_ap_service.deps import (
     RequireArApPermission,
+    get_audit_client,
     get_bank_account_repository,
     get_bank_statement_service,
     get_bill_service,
@@ -88,6 +90,29 @@ from ar_ap_service.modules.ar_ap.interfaces.api.schemas import (
 router = APIRouter(tags=["ar-ap"])
 
 
+def _emit_audit(
+    audit_client: AuditHttpClient,
+    *,
+    tenant_id: TenantId,
+    user_id: UserId,
+    entity_type: str,
+    action: str,
+    entity_id: str,
+    changes: dict[str, object] | None = None,
+) -> None:
+    """Fire-and-forget audit log emission on a successful mutation."""
+    audit_client.log_in_background(
+        CreateAuditLogDTO(
+            tenant_id=tenant_id,
+            user_id=user_id,
+            action=action,
+            entity_type=entity_type,
+            entity_id=entity_id,
+            changes=changes,
+        )
+    )
+
+
 @router.get("/health-complete")
 async def health_complete() -> dict[str, str]:
     """Combined health check for the AR/AP module."""
@@ -146,8 +171,17 @@ async def create_invoice(
     tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
     user_id: Annotated[UserId, Depends(get_current_user_id)],
     service: Annotated[InvoiceService, Depends(get_invoice_service)],
+    audit_client: Annotated[AuditHttpClient, Depends(get_audit_client)],
 ) -> InvoiceResponse:
     invoice = await service.create_draft(tenant_id, _to_create_command(body), user_id)
+    _emit_audit(
+        audit_client,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        entity_type="invoice",
+        action="created",
+        entity_id=str(invoice.id),
+    )
     return InvoiceResponse.from_entity(invoice)
 
 
@@ -216,8 +250,18 @@ async def issue_invoice(
     tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
     user_id: Annotated[UserId, Depends(get_current_user_id)],
     service: Annotated[InvoiceService, Depends(get_invoice_service)],
+    audit_client: Annotated[AuditHttpClient, Depends(get_audit_client)],
 ) -> InvoiceResponse:
     invoice = await service.issue_invoice(tenant_id, invoice_id, user_id)
+    _emit_audit(
+        audit_client,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        entity_type="invoice",
+        action="issued",
+        entity_id=str(invoice.id),
+        changes={"status": "issued"},
+    )
     return InvoiceResponse.from_entity(invoice)
 
 
@@ -293,6 +337,7 @@ async def record_payment(
     tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
     user_id: Annotated[UserId, Depends(get_current_user_id)],
     service: Annotated[PaymentService, Depends(get_payment_service)],
+    audit_client: Annotated[AuditHttpClient, Depends(get_audit_client)],
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> PaymentResponse:
     command = RecordPaymentCommand(
@@ -304,6 +349,22 @@ async def record_payment(
         idempotency_key=body.idempotency_key or idempotency_key,
     )
     payment = await service.record_payment(tenant_id, invoice_id, command, user_id)
+    _emit_audit(
+        audit_client,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        entity_type="payment",
+        action="created",
+        entity_id=str(payment.id),
+    )
+    _emit_audit(
+        audit_client,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        entity_type="invoice",
+        action="paid",
+        entity_id=str(invoice_id),
+    )
     return PaymentResponse.from_entity(payment)
 
 
@@ -403,10 +464,27 @@ async def issue_credit_note(
     tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
     user_id: Annotated[UserId, Depends(get_current_user_id)],
     service: Annotated[CreditNoteService, Depends(get_credit_note_service)],
+    audit_client: Annotated[AuditHttpClient, Depends(get_audit_client)],
     idempotency_key: Annotated[str | None, Header(alias="Idempotency-Key")] = None,
 ) -> CreditNoteResponse:
     command = _to_issue_credit_note_command(body, idempotency_key)
     credit_note = await service.issue_credit_note(tenant_id, invoice_id, command, user_id)
+    _emit_audit(
+        audit_client,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        entity_type="credit_note",
+        action="issued",
+        entity_id=str(credit_note.id),
+    )
+    _emit_audit(
+        audit_client,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        entity_type="invoice",
+        action="credited",
+        entity_id=str(invoice_id),
+    )
     return CreditNoteResponse.from_entity(credit_note)
 
 
@@ -546,6 +624,7 @@ async def reconcile_transaction(
     tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
     user_id: Annotated[UserId, Depends(get_current_user_id)],
     reconciliation_service: Annotated[ReconciliationService, Depends(get_reconciliation_service)],
+    audit_client: Annotated[AuditHttpClient, Depends(get_audit_client)],
 ) -> BankTransactionResponse:
     command = ReconcileTransactionCommand(
         transaction_id=body.transaction_id,
@@ -554,6 +633,17 @@ async def reconcile_transaction(
         account_id=body.account_id,
     )
     transaction = await reconciliation_service.confirm_match(tenant_id, user_id, command)
+    _emit_audit(
+        audit_client,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        entity_type="bank_transaction",
+        action="matched",
+        entity_id=str(transaction.id),
+        changes={"match_type": body.match_type, "match_id": str(body.match_id)}
+        if body.match_id
+        else {"match_type": body.match_type},
+    )
     return BankTransactionResponse.from_entity(transaction)
 
 
@@ -606,6 +696,7 @@ async def create_bill(
     tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
     user_id: Annotated[UserId, Depends(get_current_user_id)],
     service: Annotated[BillService, Depends(get_bill_service)],
+    audit_client: Annotated[AuditHttpClient, Depends(get_audit_client)],
 ) -> BillResponse:
     bill = await service.create_draft(
         tenant_id,
@@ -614,6 +705,14 @@ async def create_bill(
         due_date=body.due_date,
         lines_input=_bill_lines_to_input(body.lines),
         created_by=user_id,
+    )
+    _emit_audit(
+        audit_client,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        entity_type="bill",
+        action="created",
+        entity_id=str(bill.id),
     )
     return BillResponse.from_entity(bill)
 
@@ -710,8 +809,18 @@ async def record_bill(
     tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
     user_id: Annotated[UserId, Depends(get_current_user_id)],
     service: Annotated[BillService, Depends(get_bill_service)],
+    audit_client: Annotated[AuditHttpClient, Depends(get_audit_client)],
 ) -> BillResponse:
     bill = await service.record_bill(tenant_id, bill_id, user_id)
+    _emit_audit(
+        audit_client,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        entity_type="bill",
+        action="recorded",
+        entity_id=str(bill.id),
+        changes={"status": "recorded"},
+    )
     return BillResponse.from_entity(bill)
 
 
@@ -735,6 +844,7 @@ async def pay_bill(
     tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
     user_id: Annotated[UserId, Depends(get_current_user_id)],
     service: Annotated[BillService, Depends(get_bill_service)],
+    audit_client: Annotated[AuditHttpClient, Depends(get_audit_client)],
 ) -> BillResponse:
     bill = await service.pay_bill(
         tenant_id,
@@ -745,6 +855,15 @@ async def pay_bill(
         reference=body.reference,
         payment_account_id=body.payment_account_id,
         created_by=user_id,
+    )
+    _emit_audit(
+        audit_client,
+        tenant_id=tenant_id,
+        user_id=user_id,
+        entity_type="bill",
+        action="paid",
+        entity_id=str(bill.id),
+        changes={"status": "paid"},
     )
     return BillResponse.from_entity(bill)
 

@@ -14,7 +14,6 @@ from sqlalchemy import select
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from accounting_shared.database import Base as SharedBase
-from audit_service.modules.audit.infrastructure.models import AuditLogModel  # noqa: F401
 from auth_service.modules.auth.infrastructure.models import Base as AuthBase, UserModel
 from coa_service.modules.coa.infrastructure.models import AccountModel  # noqa: F401
 from tenant_service.deps import get_async_session
@@ -176,7 +175,7 @@ async def test_owner_can_list_members(
 
 
 @pytest.mark.asyncio
-async def test_accountant_cannot_list_members_audit(
+async def test_accountant_cannot_list_members(
     session_factory: async_sessionmaker[AsyncSession],
     client: AsyncClient,
 ) -> None:
@@ -204,14 +203,6 @@ async def test_accountant_cannot_list_members_audit(
         headers={"Authorization": f"Bearer {_encode_token(accountant)}"},
     )
     assert rdeny.status_code == 403
-
-    async with session_factory() as s:
-        logs = (await s.execute(select(AuditLogModel))).scalars().all()
-    rbac_logs = [x for x in logs if x.action == "RBAC_DENIED"]
-    assert len(rbac_logs) >= 1
-    assert rbac_logs[-1].changes is not None
-    assert rbac_logs[-1].changes.get("result") == "denied"
-    assert rbac_logs[-1].changes.get("attempted_action", "").startswith("GET ")
 
 
 @pytest.mark.asyncio

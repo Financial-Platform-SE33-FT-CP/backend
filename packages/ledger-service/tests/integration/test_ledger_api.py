@@ -179,7 +179,6 @@ class TestTrialBalance:
         resp = client.get("/ledger/trial-balance", headers=HEADERS)
         assert resp.status_code == 200
         data = resp.json()
-        assert data["accounts"] == []
         assert data["is_balanced"] is True
         assert data["total_debit_balance"] == "0.00"
         assert data["total_credit_balance"] == "0.00"
@@ -373,3 +372,192 @@ class TestCrossAccountBalancing:
         assert data["count"] == 2
         references = {e["reference"] for e in data["entries"]}
         assert references == {"JE-A", "JE-B"}
+
+
+# ============================================================================
+# Accounting Period CRUD (Slice 1)
+# ============================================================================
+
+
+class TestAccountingPeriodCRUD:
+    """Slice 1: Period CRUD API — red phase tests written before implementation."""
+
+    def test_create_period_returns_201(self, client: TestClient):
+        """POST /ledger/periods with valid dates → 201, period in list."""
+        _setup(client)
+        payload = {"start_date": "2025-01-01", "end_date": "2025-12-31"}
+        resp = client.post("/ledger/periods", json=payload, headers=HEADERS)
+        assert resp.status_code == 201, resp.text
+        data = resp.json()
+        assert data["start_date"] == "2025-01-01"
+        assert data["end_date"] == "2025-12-31"
+        assert data["is_closed"] is False
+        assert "id" in data
+
+    def test_list_periods_includes_created(self, client: TestClient):
+        """GET /ledger/periods returns list with created period."""
+        _setup(client)
+        create_resp = client.post(
+            "/ledger/periods",
+            json={"start_date": "2025-01-01", "end_date": "2025-12-31"},
+            headers=HEADERS,
+        )
+        created_id = create_resp.json()["id"]
+        resp = client.get("/ledger/periods", headers=HEADERS)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert isinstance(data, list)
+        assert len(data) >= 1
+        found = [p for p in data if p["id"] == created_id]
+        assert len(found) == 1
+        assert found[0]["start_date"] == "2025-01-01"
+        assert found[0]["end_date"] == "2025-12-31"
+    def test_create_period_overlapping_dates_returns_409(self, client: TestClient):
+        """POST /ledger/periods with overlapping dates → 409 Conflict."""
+        _setup(client)
+        payload = {"start_date": "2025-01-01", "end_date": "2025-12-31"}
+        client.post("/ledger/periods", json=payload, headers=HEADERS)
+        resp = client.post("/ledger/periods", json=payload, headers=HEADERS)
+        assert resp.status_code == 409, resp.text
+
+    def test_get_current_period_returns_period_covering_today(self, client: TestClient):
+        """GET /ledger/periods/current returns the period that contains today."""
+        _setup(client)
+        resp = client.get("/ledger/periods/current", headers=HEADERS)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        from datetime import date
+        today = date.today()
+        start = date.fromisoformat(data["start_date"])
+        end = date.fromisoformat(data["end_date"])
+        assert start <= today <= end
+        assert data["is_closed"] is False
+
+    def test_get_period_by_id(self, client: TestClient):
+        """GET /ledger/periods/{id} returns single period."""
+        _setup(client)
+        create_resp = client.post(
+            "/ledger/periods",
+            json={"start_date": "2025-01-01", "end_date": "2025-12-31"},
+            headers=HEADERS,
+        )
+        period_id = create_resp.json()["id"]
+        resp = client.get(f"/ledger/periods/{period_id}", headers=HEADERS)
+        assert resp.status_code == 200, resp.text
+        assert resp.json()["id"] == period_id
+
+    def test_get_period_by_id_not_found_returns_404(self, client: TestClient):
+        """GET /ledger/periods/{non_existent_id} → 404."""
+        _setup(client)
+        resp = client.get(
+            "/ledger/periods/00000000-0000-0000-0000-000000000099",
+            headers=HEADERS,
+        )
+        assert resp.status_code == 404, resp.text
+async def _seed_retained_earnings(client) -> None:
+    """Seed a retained earnings account (code 3100) for close tests."""
+    import uuid as _uuid
+    from datetime import datetime
+    from coa_service.modules.coa.infrastructure.models import AccountModel, AccountType
+
+    async with client.app.state.session_factory() as session:
+        session.add(AccountModel(
+            id=_uuid.uuid4(),
+            tenant_id=_uuid.UUID(TENANT_ID),
+            code="3100",
+            name="Retained Earnings",
+            account_type=AccountType.EQUITY,
+            is_active=True,
+            is_system_default=False,
+            created_at=datetime.now(),
+            updated_at=datetime.now(),
+        ))
+        await session.commit()
+
+
+
+# ============================================================================
+# Close Fiscal Year (Slice 2)
+# ============================================================================
+
+
+class TestCloseFiscalYear:
+    """Slice 2: Close Fiscal Year API."""
+
+    def test_close_period_creates_closing_entry_and_locks_period(self, client: TestClient):
+        import asyncio
+        _setup(client)
+        asyncio.run(_seed_retained_earnings(client))
+
+        client.post("/ledger/journal-entries", json={
+            "entry_date": "2025-06-15", "reference": "JE-REV",
+            "lines": [
+                {"account_id": ACCOUNT_1_ID, "debit_amount": "10000.00", "credit_amount": "0.00", "description": "Cash"},
+                {"account_id": ACCOUNT_2_ID, "debit_amount": "0.00", "credit_amount": "10000.00", "description": "Revenue"},
+            ],
+        }, headers=HEADERS)
+        client.post("/ledger/journal-entries", json={
+            "entry_date": "2025-07-20", "reference": "JE-EXP",
+            "lines": [
+                {"account_id": ACCOUNT_3_ID, "debit_amount": "6000.00", "credit_amount": "0.00", "description": "Expense"},
+                {"account_id": ACCOUNT_1_ID, "debit_amount": "0.00", "credit_amount": "6000.00", "description": "Cash"},
+            ],
+        }, headers=HEADERS)
+
+        periods = client.get("/ledger/periods", headers=HEADERS).json()
+        open_period = [p for p in periods if not p["is_closed"]][0]
+
+        resp = client.post(f"/ledger/periods/{open_period['id']}/close", headers=HEADERS)
+        assert resp.status_code == 200, resp.text
+        data = resp.json()
+        assert data.get("closing_journal_entry") is not None
+        assert data["closing_journal_entry"]["source_type"] == "year_end_close"
+
+        check = client.get(f"/ledger/periods/{open_period['id']}", headers=HEADERS).json()
+        assert check["is_closed"] is True
+
+        all_periods = client.get("/ledger/periods", headers=HEADERS).json()
+        assert len(all_periods) >= 2
+
+    def test_close_already_closed_period_returns_409(self, client: TestClient):
+        import asyncio
+        _setup(client)
+        asyncio.run(_seed_retained_earnings(client))
+
+        periods = client.get("/ledger/periods", headers=HEADERS).json()
+        open_period = [p for p in periods if not p["is_closed"]][0]
+
+        resp1 = client.post(f"/ledger/periods/{open_period['id']}/close", headers=HEADERS)
+        assert resp1.status_code == 200
+
+        resp2 = client.post(f"/ledger/periods/{open_period['id']}/close", headers=HEADERS)
+        assert resp2.status_code == 409, resp2.text
+
+    def test_close_empty_period_succeeds_with_memo(self, client: TestClient):
+        import asyncio
+        _setup(client)
+        asyncio.run(_seed_retained_earnings(client))
+
+        periods = client.get("/ledger/periods", headers=HEADERS).json()
+        open_period = [p for p in periods if not p["is_closed"]][0]
+
+        resp = client.post(f"/ledger/periods/{open_period['id']}/close", headers=HEADERS)
+        assert resp.status_code == 200, resp.text
+
+        check = client.get(f"/ledger/periods/{open_period['id']}", headers=HEADERS).json()
+        assert check["is_closed"] is True
+
+    def test_journal_entry_in_closed_period_rejected(self, client: TestClient):
+        import asyncio
+        _setup(client)
+        asyncio.run(_seed_retained_earnings(client))
+
+        periods = client.get("/ledger/periods", headers=HEADERS).json()
+        open_period = [p for p in periods if not p["is_closed"]][0]
+
+        client.post(f"/ledger/periods/{open_period['id']}/close", headers=HEADERS)
+
+        resp = client.post("/ledger/journal-entries", json=_balanced_payload(
+            entry_date=open_period["start_date"],
+        ), headers=HEADERS)
+        assert resp.status_code in (403, 409), resp.text

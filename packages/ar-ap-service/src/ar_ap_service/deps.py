@@ -11,6 +11,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from accounting_shared.audit_client import AuditHttpClient
 from accounting_shared.database import get_session
 from accounting_shared.exceptions import (
     ForbiddenError,
@@ -54,6 +55,16 @@ security_scheme = HTTPBearer(auto_error=False)
 def get_settings() -> ArApSettings:
     """Get cached AR/AP settings."""
     return ArApSettings()
+
+
+async def get_audit_client() -> AuditHttpClient:
+    """Build the fire-and-forget audit log client from service settings."""
+    settings = get_settings()
+    return AuditHttpClient(
+        audit_service_url=settings.audit_service_url,
+        internal_token=settings.audit_internal_api_token
+        or settings.tenant_internal_api_token,
+    )
 
 
 async def get_access_token_payload(

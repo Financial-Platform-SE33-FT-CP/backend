@@ -23,10 +23,10 @@ class JournalEntryDTO(BaseModel):
     tenant_id: str
     entry_date: date
     reference: str
-    description: str = ""
-    source_type: str = "manual"
+    description: str | None = None
+    source_type: str | None = None
     source_id: str | None = None
-    created_by: str = ""
+    created_by: str | None = None
     is_reversal: bool = False
     reversed_entry_id: str | None = None
     created_at: datetime
@@ -98,3 +98,28 @@ class TrialBalanceDTO(BaseModel):
     total_credit_balance: Decimal
     is_balanced: bool
     imbalance: Decimal
+
+
+class AccountingPeriodDTO(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    start_date: date
+    end_date: date
+    is_closed: bool
+    closed_by: str | None = None
+    created_at: datetime
+
+
+class CreateAccountingPeriodDTO(BaseModel):
+    start_date: date
+    end_date: date
+
+
+class CloseFiscalYearResponseDTO(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    closing_journal_entry: JournalEntryDTO | None = None
+    period_id: str
+    next_period: AccountingPeriodDTO | None = None
+    message: str

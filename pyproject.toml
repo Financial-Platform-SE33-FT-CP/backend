@@ -9,6 +9,7 @@ members = ["packages/*"]
 
 [tool.uv.sources]
 shared-lib = { workspace = true }
+tenant-service = { workspace = true }
 
 [dependency-groups]
 dev = [

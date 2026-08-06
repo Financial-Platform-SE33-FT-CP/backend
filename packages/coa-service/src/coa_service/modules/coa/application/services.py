@@ -1,5 +1,7 @@
 from datetime import datetime
 
+from accounting_shared.audit_client import AuditHttpClient, CreateAuditLogDTO
+from accounting_shared.middleware.audit_context import get_audit_context
 from accounting_shared.types import AccountId, TenantId, new_account_id
 
 from coa_service.config import COASettings
@@ -24,8 +26,38 @@ ACCOUNT_TYPE_CHOICES = frozenset({"asset", "liability", "equity", "revenue", "ex
 class COAService:
     """Application service for Chart of Accounts operations."""
 
-    def __init__(self, repository: AccountRepository) -> None:
+    def __init__(
+        self,
+        repository: AccountRepository,
+        audit_client: AuditHttpClient | None = None,
+    ) -> None:
         self._repository = repository
+        self._audit_client = audit_client
+
+    def _emit_audit(
+        self,
+        *,
+        tenant_id: TenantId,
+        action: str,
+        entity_id: str,
+        changes: dict[str, object] | None = None,
+    ) -> None:
+        """Fire-and-forget audit emission; requires a request-scoped user id."""
+        if self._audit_client is None:
+            return
+        user_id = get_audit_context().user_id
+        if user_id is None:
+            return
+        self._audit_client.log_in_background(
+            CreateAuditLogDTO(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                action=action,
+                entity_type="chart_of_accounts",
+                entity_id=entity_id,
+                changes=changes,
+            )
+        )
 
     async def create_account(
         self, tenant_id: TenantId, request: CreateAccountRequest
@@ -60,6 +92,12 @@ class COAService:
         )
 
         created = await self._repository.create(account)
+        self._emit_audit(
+            tenant_id=tenant_id,
+            action="created",
+            entity_id=str(created.id),
+            changes={"code": created.code, "name": created.name},
+        )
         return AccountResponse.model_validate(created)
 
     async def update_account(
@@ -80,6 +118,11 @@ class COAService:
 
         account.updated_at = datetime.utcnow()
         updated = await self._repository.update(account)
+        self._emit_audit(
+            tenant_id=tenant_id,
+            action="updated",
+            entity_id=str(updated.id),
+        )
         return AccountResponse.model_validate(updated)
 
     async def list_accounts(self, tenant_id: TenantId) -> list[AccountResponse]:
@@ -117,6 +160,12 @@ class COAService:
         account.is_active = False
         account.updated_at = datetime.utcnow()
         updated = await self._repository.update(account)
+        self._emit_audit(
+            tenant_id=tenant_id,
+            action="deactivated",
+            entity_id=str(updated.id),
+            changes={"is_active": False},
+        )
         return AccountResponse.model_validate(updated)
 
     async def seed_default_coa(

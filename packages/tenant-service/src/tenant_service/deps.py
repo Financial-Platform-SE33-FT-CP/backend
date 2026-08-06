@@ -2,7 +2,9 @@ from __future__ import annotations
 
 import uuid
 from collections.abc import AsyncGenerator
+from datetime import UTC, datetime
 
+from accounting_shared.audit_client import AuditHttpClient, CreateAuditLogDTO
 from accounting_shared.exceptions import ForbiddenError, NotFoundError
 from accounting_shared.rbac import TenantRole, role_has_permission
 from accounting_shared.types import TenantId, UserId
@@ -30,6 +32,15 @@ def get_settings() -> TenantSettings:
     if _settings is None:
         _settings = TenantSettings()
     return _settings
+
+
+def get_audit_client() -> AuditHttpClient:
+    """Build the fire-and-forget audit log client from service settings."""
+    settings = get_settings()
+    return AuditHttpClient(
+        audit_service_url=settings.audit_service_url,
+        internal_token=settings.audit_internal_api_token or settings.internal_api_token,
+    )
 
 
 async def get_async_session() -> AsyncGenerator[AsyncSession, None]:
@@ -130,7 +141,7 @@ async def get_tenant_service(
     repository: SqlAlchemyTenantRepository = Depends(get_tenant_repository),
 ) -> TenantService:
     settings = get_settings()
-    return TenantService(repository, settings)
+    return TenantService(repository, settings, audit_client=get_audit_client())
 
 
 class RequireTenantPermissions:
@@ -142,13 +153,41 @@ class RequireTenantPermissions:
             raise ValueError(msg)
         self.permissions = permissions
 
+    def _write_rbac_denied(
+        self,
+        *,
+        tid: TenantId,
+        user_id: UserId,
+        permission: str,
+        reason: str,
+        request_id: str | None,
+        attempted_action: str | None,
+    ) -> None:
+        """Emit a fire-and-forget audit entry for a denied RBAC check."""
+        get_audit_client().log_in_background(
+            CreateAuditLogDTO(
+                tenant_id=tid,
+                user_id=user_id,
+                action="RBAC_DENIED",
+                entity_type="rbac",
+                entity_id=str(tid),
+                changes={
+                    "result": "denied",
+                    "permission": permission,
+                    "reason": reason,
+                    "request_id": request_id,
+                    "timestamp": datetime.now(UTC).isoformat(),
+                    "attempted_action": attempted_action,
+                },
+            )
+        )
+
     async def __call__(
         self,
         request: Request,
         tenant_id: uuid.UUID,
         user_id: UserId = Depends(get_current_user_id),
         repo: SqlAlchemyTenantRepository = Depends(get_tenant_repository),
-        session: AsyncSession = Depends(get_async_session),
     ) -> TenantRole:
         tid = TenantId(tenant_id)
         req_id = getattr(request.state, "request_id", None)
@@ -162,39 +201,36 @@ class RequireTenantPermissions:
             if ev.reason == "tenant_not_found":
                 raise NotFoundError("Tenant not found.")
             if ev.reason == "not_member":
-                await repo.write_audit_rbac_denied(
-                    tenant_id=tid,
+                self._write_rbac_denied(
+                    tid=tid,
                     user_id=user_id,
                     permission=";".join(self.permissions),
                     reason="not_member",
                     request_id=rid,
                     attempted_action=attempted_action,
                 )
-                await session.commit()
                 raise ForbiddenError("Not a member of this tenant.")
-            await repo.write_audit_rbac_denied(
-                tenant_id=tid,
+            self._write_rbac_denied(
+                tid=tid,
                 user_id=user_id,
                 permission=self.permissions[0],
                 reason="permission_denied",
                 request_id=rid,
                 attempted_action=attempted_action,
             )
-            await session.commit()
             raise ForbiddenError("You do not have permission for this action.")
 
         role = ev.role
         assert role is not None
         for perm in self.permissions[1:]:
             if not role_has_permission(role, perm):
-                await repo.write_audit_rbac_denied(
-                    tenant_id=tid,
+                self._write_rbac_denied(
+                    tid=tid,
                     user_id=user_id,
                     permission=perm,
                     reason="permission_denied",
                     request_id=rid,
                     attempted_action=attempted_action,
                 )
-                await session.commit()
                 raise ForbiddenError("You do not have permission for this action.")
         return role

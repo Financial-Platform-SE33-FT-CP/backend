@@ -1,7 +1,7 @@
 from datetime import date, datetime
 from decimal import Decimal
 
-from pydantic import BaseModel, ConfigDict, Field
+from pydantic import BaseModel, ConfigDict, Field, model_validator
 
 
 class JournalEntryLineCreate(BaseModel):
@@ -105,3 +105,34 @@ class TrialBalanceResponse(BaseModel):
     total_credit_balance: Decimal
     is_balanced: bool
     imbalance: Decimal
+
+
+class AccountingPeriodCreate(BaseModel):
+    start_date: date
+    end_date: date
+
+    @model_validator(mode="after")
+    def validate_date_range(self) -> "AccountingPeriodCreate":
+        if self.start_date > self.end_date:
+            raise ValueError("start_date must be on or before end_date")
+        return self
+
+
+class AccountingPeriodResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    id: str
+    start_date: date
+    end_date: date
+    is_closed: bool
+    closed_by: str | None = None
+    created_at: datetime
+
+
+class CloseFiscalYearResponse(BaseModel):
+    model_config = ConfigDict(from_attributes=True)
+
+    closing_journal_entry: JournalEntryResponse | None = None
+    period_id: str
+    next_period: AccountingPeriodResponse | None = None
+    message: str
