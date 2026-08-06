@@ -42,3 +42,9 @@ app.add_middleware(RequestIDMiddleware)
 app.add_middleware(TenantContextMiddleware)
 register_exception_handlers(app)
 app.include_router(router, prefix="/billing")
+
+
+
+@app.get("/health")
+async def health() -> dict[str, str]:
+    return {"status": "ok"}

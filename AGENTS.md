@@ -69,7 +69,7 @@ All services share one PostgreSQL database. Each tracks migrations independently
 |coa-service|8004|`/health`|
 |audit-service|8005|`/health`|
 |ar-ap-service|8006|`/health`|
-|billing-service|(not in dev-start)|`/billing/health-complete`|
+|billing-service|8007|`/health`|
 |PostgreSQL|5432|—|
 |Frontend (Next.js)|3000|—|
 

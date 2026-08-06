@@ -53,7 +53,6 @@ uv run ruff format packages/
 uv run mypy packages/
 
 # 生成数据库迁移
-cd packages/auth-service && uv run alembic revision --autogenerate -m "说明"
 ```
 
 ## 服务端口
@@ -66,7 +65,7 @@ cd packages/auth-service && uv run alembic revision --autogenerate -m "说明"
 | coa-service | 8004 | `/health` |
 | audit-service | 8005 | `/health` |
 | ar-ap-service | 8006 | `/health` |
-| billing-service | — | `/billing/health-complete` |
+| billing-service | 8007 | `/health` |
 | PostgreSQL | 5432 | — |
 
 ## CI/CD

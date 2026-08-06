@@ -53,7 +53,6 @@ uv run ruff format packages/
 uv run mypy packages/
 
 # Generate a new Alembic migration
-cd packages/auth-service && uv run alembic revision --autogenerate -m "description"
 ```
 
 ## Service Ports
@@ -66,7 +65,7 @@ cd packages/auth-service && uv run alembic revision --autogenerate -m "descripti
 | coa-service | 8004 | `/health` |
 | audit-service | 8005 | `/health` |
 | ar-ap-service | 8006 | `/health` |
-| billing-service | — | `/billing/health-complete` |
+| billing-service | 8007 | `/health` |
 | PostgreSQL | 5432 | — |
 
 ## CI/CD
