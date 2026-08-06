@@ -13,7 +13,6 @@ from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_asyn
 from accounting_shared.database import Base as SharedBase
 from accounting_shared.types import TenantId, UserId
 from auth_service.modules.auth.infrastructure.models import Base as AuthBase, UserModel
-from audit_service.modules.audit.infrastructure.models import AuditLogModel
 from tenant_service.modules.tenants.domain.entities import Tenant, TenantUser
 from tenant_service.modules.tenants.infrastructure.repository import SqlAlchemyTenantRepository
 
@@ -389,65 +388,3 @@ class TestSeedDefaultCoa:
         assert all(r.is_system_default for r in rows)
         # All belong to this tenant
         assert all(r.tenant_id == str(tid) for r in rows)
-
-
-# ---------------------------------------------------------------------------
-# write_audit_tenant_created / write_audit_rbac_denied
-# ---------------------------------------------------------------------------
-
-
-class TestAuditWrites:
-    """Tests for audit log writing methods."""
-
-    async def test_write_audit_tenant_created(
-        self,
-        repo: SqlAlchemyTenantRepository,
-        session: AsyncSession,
-    ) -> None:
-        uid = _uid()
-        tid = _tid()
-        await repo.create(_make_tenant_domain(tid, uid))
-        await repo.write_audit_tenant_created(tenant_id=tid, user_id=uid)
-
-        from sqlalchemy import select
-
-        logs = (
-            (await session.execute(select(AuditLogModel).where(AuditLogModel.tenant_id == tid)))
-            .scalars()
-            .all()
-        )
-        assert len(logs) == 1
-        assert logs[0].action == "TENANT_CREATED"
-        assert logs[0].entity_type == "tenant"
-        assert logs[0].user_id == uid
-
-    async def test_write_audit_rbac_denied(
-        self,
-        repo: SqlAlchemyTenantRepository,
-        session: AsyncSession,
-    ) -> None:
-        uid = _uid()
-        tid = _tid()
-        await repo.create(_make_tenant_domain(tid, uid))
-        await repo.write_audit_rbac_denied(
-            tenant_id=tid,
-            user_id=uid,
-            permission="tenant:member:list",
-            reason="permission_denied",
-            request_id="req-123",
-            target_resource="members",
-            attempted_action="GET /api/v1/tenants/xxx/members",
-        )
-
-        from sqlalchemy import select
-
-        logs = (
-            (await session.execute(select(AuditLogModel).where(AuditLogModel.tenant_id == tid)))
-            .scalars()
-            .all()
-        )
-        assert len(logs) == 1
-        assert logs[0].action == "RBAC_DENIED"
-        assert logs[0].changes is not None
-        assert logs[0].changes["result"] == "denied"
-        assert logs[0].changes["permission"] == "tenant:member:list"

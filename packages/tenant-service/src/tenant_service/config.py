@@ -35,6 +35,21 @@ class TenantSettings(SharedSettings):  # type: ignore[misc]
         ),
     )
 
+    # ── Audit trail (EPIC 11) ───────────────────────────────────────────────
+    audit_service_url: str = Field(
+        default="http://audit-service:8000",
+        validation_alias=AliasChoices("AUDIT_SERVICE_URL", "audit_service_url"),
+        description="Base URL of the audit-service for audit log emission.",
+    )
+    audit_internal_api_token: str = Field(
+        default="",
+        validation_alias=AliasChoices("AUDIT_INTERNAL_API_TOKEN", "audit_internal_api_token"),
+        description=(
+            "Shared secret for the audit-service internal endpoint; falls back to "
+            "the tenant internal token when unset."
+        ),
+    )
+
     @property
     def service_name(self) -> str:
         return "tenant-service"

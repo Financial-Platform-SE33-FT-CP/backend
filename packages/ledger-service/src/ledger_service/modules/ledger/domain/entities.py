@@ -33,10 +33,10 @@ class JournalEntry:
     tenant_id: str = ""
     entry_date: date = field(default_factory=date.today)
     reference: str = ""
-    description: str = ""
-    source_type: str = "manual"
+    description: str | None = ""
+    source_type: str | None = "manual"
     source_id: str | None = None
-    created_by: str = ""
+    created_by: str | None = ""
     is_reversal: bool = False
     reversed_entry_id: str | None = None
     created_at: datetime = field(default_factory=datetime.utcnow)

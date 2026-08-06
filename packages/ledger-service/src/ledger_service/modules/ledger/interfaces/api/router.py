@@ -6,21 +6,26 @@ from typing import Annotated
 from fastapi import APIRouter, Depends, Query
 
 from accounting_shared.exceptions import NotFoundError
-from accounting_shared.rbac import P_ACCOUNTING_READ
+from accounting_shared.rbac import P_ACCOUNTING_CREATE, P_ACCOUNTING_READ
 from accounting_shared.types import TenantId
 from ledger_service.deps import (
     RequireLedgerPermission,
     get_current_tenant_id_str,
+    get_current_user_id_str,
     get_ledger_service,
     require_tenant_id,
 )
 from ledger_service.modules.ledger.application.dto import (
+    CreateAccountingPeriodDTO,
     CreateJournalEntryDTO,
     CreateJournalEntryLineDTO,
 )
 from ledger_service.modules.ledger.application.services import LedgerService
 from ledger_service.modules.ledger.interfaces.api.schemas import (
+    AccountingPeriodCreate,
+    AccountingPeriodResponse,
     AccountLedgerViewResponse,
+    CloseFiscalYearResponse,
     JournalEntryCreateRequest,
     JournalEntryListResponse,
     JournalEntryResponse,
@@ -124,3 +129,66 @@ async def get_trial_balance(
         as_of_date=as_of_date,
     )
     return TrialBalanceResponse.model_validate(result.model_dump())
+
+
+# ============================================================================
+# Accounting Period endpoints
+# ============================================================================
+
+
+@router.post("/periods", response_model=AccountingPeriodResponse, status_code=201)
+async def create_period(
+    body: AccountingPeriodCreate,
+    tenant_id: Annotated[str, Depends(get_current_tenant_id_str)],
+    user_id: Annotated[str, Depends(get_current_user_id_str)],
+    service: Annotated[LedgerService, Depends(get_ledger_service)],
+    _: None = Depends(RequireLedgerPermission(P_ACCOUNTING_CREATE)),
+) -> AccountingPeriodResponse:
+    dto = CreateAccountingPeriodDTO(start_date=body.start_date, end_date=body.end_date)
+    result = await service.create_period(tenant_id, dto, user_id)
+    return AccountingPeriodResponse.model_validate(result.model_dump())
+
+
+@router.get("/periods", response_model=list[AccountingPeriodResponse])
+async def list_periods(
+    tenant_id: Annotated[str, Depends(get_current_tenant_id_str)],
+    service: Annotated[LedgerService, Depends(get_ledger_service)],
+    _: None = Depends(RequireLedgerPermission(P_ACCOUNTING_READ)),
+) -> list[AccountingPeriodResponse]:
+    results = await service.list_periods(tenant_id)
+    return [AccountingPeriodResponse.model_validate(r.model_dump()) for r in results]
+
+
+@router.get("/periods/current", response_model=AccountingPeriodResponse)
+async def get_current_period(
+    tenant_id: Annotated[str, Depends(get_current_tenant_id_str)],
+    service: Annotated[LedgerService, Depends(get_ledger_service)],
+    _: None = Depends(RequireLedgerPermission(P_ACCOUNTING_READ)),
+) -> AccountingPeriodResponse:
+    result = await service.get_current_period(tenant_id)
+    if result is None:
+        raise NotFoundError("No accounting period covers today.")
+    return AccountingPeriodResponse.model_validate(result.model_dump())
+
+
+@router.get("/periods/{period_id}", response_model=AccountingPeriodResponse)
+async def get_period(
+    period_id: str,
+    tenant_id: Annotated[str, Depends(get_current_tenant_id_str)],
+    service: Annotated[LedgerService, Depends(get_ledger_service)],
+    _: None = Depends(RequireLedgerPermission(P_ACCOUNTING_READ)),
+) -> AccountingPeriodResponse:
+    result = await service.get_period(tenant_id, period_id)
+    return AccountingPeriodResponse.model_validate(result.model_dump())
+
+
+@router.post("/periods/{period_id}/close", response_model=CloseFiscalYearResponse)
+async def close_fiscal_year(
+    period_id: str,
+    tenant_id: Annotated[str, Depends(get_current_tenant_id_str)],
+    user_id: Annotated[str, Depends(get_current_user_id_str)],
+    service: Annotated[LedgerService, Depends(get_ledger_service)],
+    _: None = Depends(RequireLedgerPermission(P_ACCOUNTING_CREATE)),
+) -> CloseFiscalYearResponse:
+    result = await service.close_fiscal_year(tenant_id, period_id, user_id)
+    return CloseFiscalYearResponse.model_validate(result.model_dump())
