@@ -8,7 +8,6 @@ on:
       - "packages/shared-lib/**"
       - "packages/tenant-service/**"
       - "pyproject.toml"
-      - "uv.lock"
       - ".github/workflows/ci-billing-service.yml"
   pull_request:
     paths:
@@ -16,7 +15,6 @@ on:
       - "packages/shared-lib/**"
       - "packages/tenant-service/**"
       - "pyproject.toml"
-      - "uv.lock"
       - ".github/workflows/ci-billing-service.yml"
 
 permissions:
@@ -27,13 +25,14 @@ jobs:
     name: Lint & Type Check
     runs-on: ubuntu-latest
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           version: "0.6.x"
           enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
 
       - name: Sync dependencies
         run: uv sync --package billing-service --group dev
@@ -52,13 +51,14 @@ jobs:
     runs-on: ubuntu-latest
     needs: lint-and-type
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           version: "0.6.x"
           enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
 
       - name: Sync dependencies
         run: uv sync --package billing-service --group dev
@@ -67,7 +67,7 @@ jobs:
         run: uv run --package billing-service pytest packages/billing-service/tests/unit -v --cov=packages/billing-service/src --cov-report=xml
 
       - name: Upload coverage
-        uses: actions/upload-artifact@v4
+        uses: actions/upload-artifact@v6
         with:
           name: coverage-billing-service
           path: coverage.xml
@@ -78,13 +78,14 @@ jobs:
     runs-on: ubuntu-latest
     needs: lint-and-type
     steps:
-      - uses: actions/checkout@v4
+      - uses: actions/checkout@v5
 
       - name: Install uv
-        uses: astral-sh/setup-uv@v5
+        uses: astral-sh/setup-uv@v7
         with:
           version: "0.6.x"
           enable-cache: true
+          cache-dependency-glob: "**/pyproject.toml"
 
       - name: Sync dependencies
         run: uv sync --package billing-service --group dev
