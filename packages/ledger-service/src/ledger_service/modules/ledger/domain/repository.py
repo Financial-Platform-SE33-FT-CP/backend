@@ -63,6 +63,7 @@ class JournalEntryRepository(ABC):
         *,
         tenant_id: str,
         as_of_date: date | None,
+        from_date: date | None = None,
     ) -> list[TrialBalanceAccountAggregate]: ...
 
 
@@ -74,3 +75,31 @@ class AccountingPeriodRepository(ABC):
     @abstractmethod
     async def is_date_closed(self, tenant_id: UUID, target_date: date) -> bool:
         """Return True if *target_date* falls within a closed accounting period."""
+
+    @abstractmethod
+    async def find_account_by_code(
+        self, tenant_id: UUID, code: str
+    ) -> LedgerAccountSnapshot | None:
+        """Find an account by its code, scoped to tenant."""
+
+    @abstractmethod
+    async def create_period(self, period: AccountingPeriod) -> AccountingPeriod:
+        """Persist a new accounting period."""
+
+    @abstractmethod
+    async def list_by_tenant(self, tenant_id: UUID) -> list[AccountingPeriod]:
+        """List all periods for a tenant, newest first."""
+
+    @abstractmethod
+    async def find_by_id(self, tenant_id: UUID, period_id: UUID) -> AccountingPeriod | None:
+        """Find a period by its ID, scoped to tenant."""
+
+    @abstractmethod
+    async def find_by_date_range(
+        self, tenant_id: UUID, start_date: date, end_date: date
+    ) -> AccountingPeriod | None:
+        """Return a period that overlaps the given date range, or None."""
+
+    @abstractmethod
+    async def close_period(self, period_id: UUID, closed_by: UUID) -> None:
+        """Mark a period as closed."""

@@ -1,4 +1,5 @@
 """US-13 bank statement CSV upload tests (service layer with in-memory fakes)."""
+
 from __future__ import annotations
 
 from decimal import Decimal
@@ -7,9 +8,11 @@ from uuid import UUID
 import pytest
 
 from accounting_shared.exceptions import ValidationError
-from ar_ap_service.modules.ar_ap.application.bank_statement import parse_bank_statement_csv
+from ar_ap_service.modules.ar_ap.application.bank_statement import (
+    BankStatementService,
+    parse_bank_statement_csv,
+)
 from ar_ap_service.modules.ar_ap.application.dto import UploadBankStatementCommand
-from ar_ap_service.modules.ar_ap.application.bank_statement import BankStatementService
 
 from .conftest import (
     TENANT_A,
@@ -41,7 +44,11 @@ def test_parse_csv_with_non_standard_headers() -> None:
 
 
 def test_parse_csv_with_debit_credit_columns() -> None:
-    csv = "Date,Description,Debit,Credit\n15/01/2026,Deposit,,\"1,500.00\"\n16/01/2026,Withdrawal,200.00,"
+    csv = (
+        "Date,Description,Debit,Credit\n"
+        '15/01/2026,Deposit,,"1,500.00"\n'
+        "16/01/2026,Withdrawal,200.00,"
+    )
     txns = parse_bank_statement_csv(csv)
     assert len(txns) == 2
     assert txns[0].amount == Decimal("1500.00")  # credit
@@ -105,8 +112,8 @@ async def test_upload_different_tenant_not_deduplicated() -> None:
     csv = "date,description,amount\n2026-01-15,Same content,100.00"
     command = UploadBankStatementCommand(bank_account_id=BANK_ACCOUNT_ID, csv_content=csv)
     await service.upload_statement(TENANT_A, command)
-    TENANT_B = UUID("00000000-0000-0000-0000-0000000000bb")
-    created = await service.upload_statement(TENANT_B, command)
+    tenant_b = UUID("00000000-0000-0000-0000-0000000000bb")
+    created = await service.upload_statement(tenant_b, command)
     assert len(created) == 1  # different tenant, not a dup
 
 

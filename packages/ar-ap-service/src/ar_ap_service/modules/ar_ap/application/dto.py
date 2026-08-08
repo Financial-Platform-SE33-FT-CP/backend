@@ -20,6 +20,7 @@ class InvoiceLineInput(BaseModel):
     quantity: Decimal = Field(gt=0)
     unit_price: Decimal = Field(ge=0)
     description: str | None = None
+    gst_code_id: UUID | None = None
     gst_rate: Decimal = Field(default=Decimal("0"), ge=0)
 
 
@@ -81,6 +82,7 @@ class CreditNoteLineInput(BaseModel):
     quantity: Decimal = Field(gt=0)
     unit_price: Decimal = Field(ge=0)
     description: str | None = None
+    gst_code_id: UUID | None = None
     gst_rate: Decimal = Field(default=Decimal("0"), ge=0)
     invoice_line_id: UUID | None = None
 

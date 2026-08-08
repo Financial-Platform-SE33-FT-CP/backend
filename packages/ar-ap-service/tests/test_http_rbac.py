@@ -14,13 +14,14 @@ from jose import jwt
 
 from accounting_shared.exceptions import ForbiddenError
 from ar_ap_service.deps import get_invoice_service
-from ar_ap_service.modules.ar_ap.domain.entities import Invoice, InvoiceStatus
+from ar_ap_service.modules.ar_ap.domain.entities import Invoice, InvoiceLine, InvoiceStatus
 
 _SECRET = "ar-ap-us8-test-secret"
 
 TENANT_ID = uuid.UUID("00000000-0000-0000-0000-0000000000aa")
 CUSTOMER_ID = uuid.UUID("00000000-0000-0000-0000-0000000000c1")
 REVENUE_ID = uuid.UUID("44444444-4444-4444-4444-444444444444")
+GST_OUTPUT_CODE_ID = uuid.UUID("88888888-8888-8888-8888-888888888881")
 
 
 def _bearer(uid: uuid.UUID) -> dict[str, str]:
@@ -45,6 +46,7 @@ def _create_body() -> dict:
                 "account_id": str(REVENUE_ID),
                 "quantity": "10",
                 "unit_price": "100",
+                "gst_code_id": str(GST_OUTPUT_CODE_ID),
                 "gst_rate": "0.09",
             }
         ],
@@ -53,14 +55,31 @@ def _create_body() -> dict:
 
 class _StubService:
     async def create_draft(self, tenant_id, command, created_by) -> Invoice:
+        lines: list[InvoiceLine] = []
+
+        for raw in command.lines:
+            line = InvoiceLine(
+                account_id=raw.account_id,
+                quantity=raw.quantity,
+                unit_price=raw.unit_price,
+                description=raw.description,
+                gst_code_id=raw.gst_code_id,
+                gst_rate=raw.gst_rate,
+            )
+            line.recalculate()
+            lines.append(line)
+
         return Invoice(
             tenant_id=tenant_id,
             customer_id=command.customer_id,
+            issue_date=command.issue_date,
+            due_date=command.due_date,
             status=InvoiceStatus.DRAFT,
             subtotal=Decimal("1000.00"),
             gst_amount=Decimal("90.00"),
             total=Decimal("1090.00"),
             created_by=created_by,
+            lines=lines,
         )
 
     async def build_invoice_pdf(self, tenant_id, invoice_id) -> tuple[bytes, str]:
@@ -141,6 +160,7 @@ async def test_authorized_user_can_create(
     body = r.json()
     assert body["status"] == "draft"
     assert body["total"] == "1090.00"
+    assert body["lines"][0]["gst_code_id"] == str(GST_OUTPUT_CODE_ID)
 
 
 @pytest.mark.asyncio

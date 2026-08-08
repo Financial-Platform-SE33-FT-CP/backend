@@ -6,6 +6,7 @@ import uuid
 from collections.abc import AsyncGenerator
 from functools import lru_cache
 
+from accounting_shared.audit_client import AuditHttpClient
 from accounting_shared.database import get_session
 from accounting_shared.exceptions import (
     ForbiddenError,
@@ -173,7 +174,16 @@ async def get_coa_repository(
     return SqlAlchemyAccountRepository(session)
 
 
+async def get_audit_client() -> AuditHttpClient:
+    settings = get_settings()
+    return AuditHttpClient(
+        audit_service_url=settings.audit_service_url,
+        internal_token=settings.audit_internal_api_token or settings.tenant_internal_api_token,
+    )
+
+
 async def get_coa_service(
     repository: AccountRepository = Depends(get_coa_repository),
+    audit_client: AuditHttpClient = Depends(get_audit_client),
 ) -> COAService:
-    return COAService(repository)
+    return COAService(repository, audit_client=audit_client)

@@ -1,4 +1,5 @@
 """US-14 bank transaction reconciliation tests (service layer with in-memory fakes)."""
+
 from __future__ import annotations
 
 from datetime import date, datetime
@@ -6,7 +7,6 @@ from decimal import Decimal
 from uuid import UUID, uuid4
 
 import pytest
-from ar_ap_service.modules.ar_ap.domain.entities import BankTransaction
 
 from accounting_shared.exceptions import NotFoundError, ValidationError
 from ar_ap_service.modules.ar_ap.application.dto import (
@@ -14,9 +14,13 @@ from ar_ap_service.modules.ar_ap.application.dto import (
     InvoiceLineInput,
     ReconcileTransactionCommand,
 )
+from ar_ap_service.modules.ar_ap.application.services import InvoiceService
+from ar_ap_service.modules.ar_ap.domain.entities import BankTransaction
+
 from .conftest import (
     AR_ACCOUNT_ID,
     BANK_ACCOUNT_ID,
+    GST_OUTPUT_CODE_ID,
     REVENUE_ACCOUNT_ID,
     TENANT_A,
     FakeBankTransactionRepository,
@@ -111,10 +115,7 @@ async def test_suggest_matches_finds_exact_invoice_match(
     txn = _seed_unmatched_txn(bank_transactions, amount=Decimal("1090.00"))
 
     # Create and issue an invoice with total=1090.00
-    from ar_ap_service.modules.ar_ap.application.dto import (
-        CreateInvoiceCommand,
-        InvoiceLineInput,
-    )
+
     cmd = CreateInvoiceCommand(
         customer_id=customer_a.id,
         issue_date=ISSUE_DATE,
@@ -125,6 +126,7 @@ async def test_suggest_matches_finds_exact_invoice_match(
                 quantity=Decimal("10"),
                 unit_price=Decimal("100"),
                 description="Service",
+                gst_code_id=GST_OUTPUT_CODE_ID,
                 gst_rate=Decimal("0.09"),
             )
         ],
@@ -232,8 +234,8 @@ async def test_confirm_match_withdrawal_posts_correct_journal(
     entry = ledger.posted[0]
     # withdrawal: Cr Bank, Dr Other
     lines = entry["lines"]
-    credit_lines = [l for l in lines if l.credit_amount > Decimal("0")]
-    debit_lines = [l for l in lines if l.debit_amount > Decimal("0")]
+    credit_lines = [line for line in lines if line.credit_amount > Decimal("0")]
+    debit_lines = [line for line in lines if line.debit_amount > Decimal("0")]
     assert len(credit_lines) == 1
     assert len(debit_lines) == 1
     assert credit_lines[0].credit_amount == Decimal("500.00")

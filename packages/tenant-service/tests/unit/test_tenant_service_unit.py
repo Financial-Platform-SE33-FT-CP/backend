@@ -8,6 +8,7 @@ from unittest.mock import AsyncMock, MagicMock, patch
 
 import pytest
 
+from accounting_shared.audit_client import CreateAuditLogDTO
 from accounting_shared.exceptions import (
     BadRequestError,
     ForbiddenError,
@@ -73,10 +74,22 @@ def _denied(reason: str = "not_member") -> TenantPermissionEvaluation:
     return TenantPermissionEvaluation(False, None, reason)
 
 
-def _create_tenant_service(repo: MagicMock) -> TenantService:
+class _FakeAuditClient:
+    """Records audit DTOs synchronously; mirrors AuditHttpClient.log_in_background."""
+
+    def __init__(self) -> None:
+        self.entries: list[CreateAuditLogDTO] = []
+
+    def log_in_background(self, dto: CreateAuditLogDTO) -> None:
+        self.entries.append(dto)
+
+
+def _create_tenant_service(
+    repo: MagicMock, audit_client: _FakeAuditClient | None = None
+) -> TenantService:
     settings = MagicMock()
     settings.default_coa_seed = True
-    return TenantService(repo, settings)
+    return TenantService(repo, settings, audit_client=audit_client)
 
 
 # ---------------------------------------------------------------------------
@@ -124,9 +137,8 @@ class TestCreateTenant:
             )
         )
         repo.seed_default_coa = AsyncMock()
-        repo.write_audit_tenant_created = AsyncMock()
-
-        service = _create_tenant_service(repo)
+        audit = _FakeAuditClient()
+        service = _create_tenant_service(repo, audit)
 
         with patch(
             "tenant_service.modules.tenants.application.services.new_tenant_id",
@@ -148,10 +160,12 @@ class TestCreateTenant:
         repo.create.assert_awaited_once()
         repo.add_user.assert_awaited_once()
         repo.seed_default_coa.assert_awaited_once_with(fixed_id)
-        repo.write_audit_tenant_created.assert_awaited_once_with(
-            tenant_id=fixed_id,
-            user_id=fixed_owner_id,
-        )
+        assert len(audit.entries) == 1
+        entry = audit.entries[0]
+        assert entry.action == "TENANT_CREATED"
+        assert entry.entity_type == "tenant"
+        assert entry.entity_id == str(fixed_id)
+        assert entry.user_id == fixed_owner_id
 
     @patch(MOCK_EVAL_PATH, new_callable=AsyncMock)
     async def test_create_tenant_unsupported_currency(
@@ -206,8 +220,6 @@ class TestCreateTenant:
             )
         )
         repo.seed_default_coa = AsyncMock()
-        repo.write_audit_tenant_created = AsyncMock()
-
         settings = MagicMock()
         settings.default_coa_seed = False
         service = TenantService(repo, settings)
@@ -263,8 +275,6 @@ class TestCreateTenant:
             )
         )
         repo.seed_default_coa = AsyncMock()
-        repo.write_audit_tenant_created = AsyncMock()
-
         settings = MagicMock()
         settings.default_coa_seed = False
         service = TenantService(repo, settings)
@@ -322,8 +332,6 @@ class TestCreateTenant:
             )
         )
         repo.seed_default_coa = AsyncMock()
-        repo.write_audit_tenant_created = AsyncMock()
-
         settings = MagicMock()
         settings.default_coa_seed = False
         service = TenantService(repo, settings)
@@ -523,7 +531,8 @@ class TestInviteMember:
                 updated_at=now,
             )
         )
-        service = _create_tenant_service(repo)
+        audit = _FakeAuditClient()
+        service = _create_tenant_service(repo, audit)
 
         dto = InviteMemberRequest(email="new@example.com", role="VIEWER")
         result = await service.invite_member(tid, dto, uid)
@@ -532,6 +541,12 @@ class TestInviteMember:
         assert result.role == "VIEWER"
         repo.find_user_id_by_email.assert_awaited_once_with("new@example.com")
         repo.add_user.assert_awaited_once()
+        assert len(audit.entries) == 1
+        entry = audit.entries[0]
+        assert entry.action == "MEMBER_ADDED"
+        assert entry.entity_type == "tenant"
+        assert entry.user_id == uid
+        assert entry.changes == {"user_id": str(invitee), "role": "VIEWER"}
 
     @patch(MOCK_EVAL_PATH, new_callable=AsyncMock)
     async def test_invite_no_user_id_or_email_raises_validation(
@@ -604,10 +619,17 @@ class TestRemoveMember:
         repo.get_user_role = AsyncMock(return_value="VIEWER")
         repo.count_active_owners = AsyncMock(return_value=2)
         repo.remove_user = AsyncMock()
-        service = _create_tenant_service(repo)
+        audit = _FakeAuditClient()
+        service = _create_tenant_service(repo, audit)
 
         await service.remove_member(tid, target, uid)
         repo.remove_user.assert_awaited_once_with(tid, target)
+        assert len(audit.entries) == 1
+        entry = audit.entries[0]
+        assert entry.action == "MEMBER_REMOVED"
+        assert entry.entity_type == "tenant"
+        assert entry.user_id == uid
+        assert entry.changes == {"user_id": str(target)}
 
 
 # ---------------------------------------------------------------------------
@@ -688,13 +710,20 @@ class TestUpdateMemberRole:
                 TenantMemberRow(user_id=target, email="t@x.com", role="ACCOUNTANT", created_at=now),
             ]
         )
-        service = _create_tenant_service(repo)
+        audit = _FakeAuditClient()
+        service = _create_tenant_service(repo, audit)
 
         dto = UpdateMemberRoleRequest(role="ACCOUNTANT")
         result = await service.update_member_role(tid, target, dto, uid)
 
         assert result.user_id == str(target)
         assert result.role == "ACCOUNTANT"
+        assert len(audit.entries) == 1
+        entry = audit.entries[0]
+        assert entry.action == "ROLE_CHANGED"
+        assert entry.entity_type == "tenant"
+        assert entry.user_id == uid
+        assert entry.changes == {"user_id": str(target), "from": "VIEWER", "to": "ACCOUNTANT"}
 
     @patch(MOCK_EVAL_PATH, new_callable=AsyncMock)
     async def test_update_role_permission_denied(

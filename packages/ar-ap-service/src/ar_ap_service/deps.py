@@ -11,6 +11,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from accounting_shared.audit_client import AuditHttpClient
 from accounting_shared.database import get_session
 from accounting_shared.exceptions import (
     ForbiddenError,
@@ -28,6 +29,7 @@ from ar_ap_service.modules.ar_ap.application.bill_service import BillService
 from ar_ap_service.modules.ar_ap.application.reconciliation import ReconciliationService
 from ar_ap_service.modules.ar_ap.application.services import (
     CreditNoteService,
+    GstService,
     InvoiceService,
     PaymentService,
 )
@@ -39,6 +41,7 @@ from ar_ap_service.modules.ar_ap.infrastructure.repository import (
     SqlAlchemyBillRepository,
     SqlAlchemyCreditNoteRepository,
     SqlAlchemyCustomerRepository,
+    SqlAlchemyGstRepository,
     SqlAlchemyInvoiceRepository,
     SqlAlchemyPaymentRepository,
     SqlAlchemyVendorRepository,
@@ -52,6 +55,15 @@ security_scheme = HTTPBearer(auto_error=False)
 def get_settings() -> ArApSettings:
     """Get cached AR/AP settings."""
     return ArApSettings()
+
+
+async def get_audit_client() -> AuditHttpClient:
+    """Build the fire-and-forget audit log client from service settings."""
+    settings = get_settings()
+    return AuditHttpClient(
+        audit_service_url=settings.audit_service_url,
+        internal_token=settings.audit_internal_api_token or settings.tenant_internal_api_token,
+    )
 
 
 async def get_access_token_payload(
@@ -176,6 +188,7 @@ async def get_invoice_service(
         invoices=SqlAlchemyInvoiceRepository(session),
         customers=SqlAlchemyCustomerRepository(session),
         accounts=SqlAccountReader(session),
+        gst=SqlAlchemyGstRepository(session),
         ledger=SqlLedgerPoster(session),
         settings=settings,
     )
@@ -204,9 +217,16 @@ async def get_credit_note_service(
         invoices=SqlAlchemyInvoiceRepository(session),
         customers=SqlAlchemyCustomerRepository(session),
         accounts=SqlAccountReader(session),
+        gst=SqlAlchemyGstRepository(session),
         ledger=SqlLedgerPoster(session),
         settings=settings,
     )
+
+
+async def get_gst_service(
+    session: AsyncSession = Depends(get_async_session),
+) -> GstService:
+    return GstService(gst=SqlAlchemyGstRepository(session))
 
 
 async def get_bank_transaction_repository(
@@ -251,6 +271,7 @@ async def get_bill_service(
         bills=SqlAlchemyBillRepository(session),
         vendors=SqlAlchemyVendorRepository(session),
         accounts=SqlAccountReader(session),
+        gst=SqlAlchemyGstRepository(session),
         ledger=SqlLedgerPoster(session),
         bill_payments=SqlAlchemyBillPaymentRepository(session),
     )

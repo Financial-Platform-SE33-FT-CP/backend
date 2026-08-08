@@ -102,7 +102,14 @@ def generate_invoice_pdf(
                     [
                         f"Issue date: <b>{_format_date(invoice.issue_date)}</b>",
                         f"Due date: <b>{_format_date(invoice.due_date)}</b>",
-                        f"Created: {_format_date(invoice.created_at.date()) if isinstance(invoice.created_at, datetime) else '—'}",
+                        (
+                            "Created: "
+                            + (
+                                _format_date(invoice.created_at.date())
+                                if isinstance(invoice.created_at, datetime)
+                                else "?"
+                            )
+                        ),
                     ]
                 ),
                 styles["Normal"],

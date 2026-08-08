@@ -5,7 +5,6 @@ from datetime import UTC, datetime
 
 from accounting_shared.rbac import TenantRole
 from accounting_shared.types import TenantId, UserId
-from audit_service.modules.audit.infrastructure.models import AuditLogModel
 from auth_service.modules.auth.infrastructure.models import UserModel
 from coa_service.modules.coa.infrastructure.models import AccountModel
 from sqlalchemy import func, select
@@ -184,53 +183,6 @@ class SqlAlchemyTenantRepository(TenantRepository):
                 updated_at=now,
             )
             self._session.add(row)
-        await self._session.flush()
-
-    async def write_audit_tenant_created(self, *, tenant_id: TenantId, user_id: UserId) -> None:
-        log = AuditLogModel(
-            id=uuid.uuid4(),
-            tenant_id=tenant_id,
-            user_id=user_id,
-            action="TENANT_CREATED",
-            entity_type="tenant",
-            entity_id=str(tenant_id),
-            changes=None,
-        )
-        self._session.add(log)
-        await self._session.flush()
-
-    async def write_audit_rbac_denied(
-        self,
-        *,
-        tenant_id: TenantId,
-        user_id: UserId,
-        permission: str,
-        reason: str,
-        request_id: str | None,
-        target_resource: str | None = None,
-        attempted_action: str | None = None,
-    ) -> None:
-        changes: dict[str, object] = {
-            "result": "denied",
-            "permission": permission,
-            "reason": reason,
-            "request_id": request_id,
-            "timestamp": datetime.now(UTC).isoformat(),
-        }
-        if attempted_action is not None:
-            changes["attempted_action"] = attempted_action
-        if target_resource is not None:
-            changes["target_resource"] = target_resource
-        log = AuditLogModel(
-            id=uuid.uuid4(),
-            tenant_id=tenant_id,
-            user_id=user_id,
-            action="RBAC_DENIED",
-            entity_type="rbac",
-            entity_id=str(tenant_id),
-            changes=changes,
-        )
-        self._session.add(log)
         await self._session.flush()
 
     async def list_coa_for_tenant(self, tenant_id: TenantId) -> list[CoaAccountRow]:

@@ -25,6 +25,7 @@ NEON_DATABASE_SETUP.md
 *.swo
 
 # others
+.DS_Store
 *.docx
 *.pdf
 *.xlsx

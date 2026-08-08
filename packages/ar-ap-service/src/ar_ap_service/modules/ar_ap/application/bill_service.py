@@ -6,18 +6,20 @@ US-12: Pay bills (record bill payment → update status).
 
 from __future__ import annotations
 
-from datetime import date, datetime
+from datetime import date
 from decimal import Decimal
-from uuid import UUID, uuid4
+from uuid import UUID
 
 from accounting_shared.exceptions import ConflictError, NotFoundError, ValidationError
-
 from ar_ap_service.modules.ar_ap.domain.entities import (
     AccountInfo,
     Bill,
     BillLine,
     BillPayment,
     BillStatus,
+    GstKind,
+    GstSourceType,
+    GstTransaction,
     JournalLineInput,
     PaymentMethod,
     Vendor,
@@ -26,6 +28,7 @@ from ar_ap_service.modules.ar_ap.domain.repository import (
     AccountReader,
     BillPaymentRepository,
     BillRepository,
+    GstRepository,
     LedgerPoster,
     VendorRepository,
 )
@@ -33,9 +36,20 @@ from ar_ap_service.modules.ar_ap.domain.repository import (
 _ZERO = Decimal("0.00")
 _ASSET_TYPE = "asset"
 _EXPENSE_TYPE = "expense"
-_LIABILITY_TYPE = "liability"
-
 _PAYABLE_STATUSES: frozenset[BillStatus] = frozenset({BillStatus.OPEN, BillStatus.PARTIAL})
+_BILL_GST_KINDS: frozenset[GstKind] = frozenset(
+    {
+        GstKind.INPUT,
+        GstKind.ZERO_RATED,
+        GstKind.EXEMPT,
+    }
+)
+
+
+def _gst_reporting_period(transaction_date: date) -> str:
+    """Return the internal quarterly GST reporting-period identifier."""
+    quarter = ((transaction_date.month - 1) // 3) + 1
+    return f"{transaction_date.year}-Q{quarter}"
 
 
 class BillService:
@@ -46,12 +60,14 @@ class BillService:
         bills: BillRepository,
         vendors: VendorRepository,
         accounts: AccountReader,
+        gst: GstRepository,
         ledger: LedgerPoster,
         bill_payments: BillPaymentRepository,
     ) -> None:
         self._bills = bills
         self._vendors = vendors
         self._accounts = accounts
+        self._gst = gst
         self._ledger = ledger
         self._bill_payments = bill_payments
 
@@ -78,7 +94,7 @@ class BillService:
             status=BillStatus.DRAFT,
             created_by=created_by,
         )
-        bill.lines = [self._line_from_input(i) for i in lines_input]
+        bill.lines = [await self._line_from_input(tenant_id, item) for item in lines_input]
         bill.recalculate_totals()
         return await self._bills.add(bill)
 
@@ -107,7 +123,7 @@ class BillService:
         if bill.issue_date is not None and bill.due_date is not None:
             self._validate_dates(bill.issue_date, bill.due_date)
         if lines_input is not None:
-            bill.lines = [self._line_from_input(i) for i in lines_input]
+            bill.lines = [await self._line_from_input(tenant_id, item) for item in lines_input]
         bill.recalculate_totals()
         return await self._bills.update(bill)
 
@@ -171,6 +187,10 @@ class BillService:
         bill.bill_number = bill_number
         bill.journal_entry_id = entry_id
         bill.status = BillStatus.OPEN
+
+        gst_transactions = self._build_gst_transactions(bill)
+        await self._gst.add_transactions(gst_transactions)
+
         return await self._bills.update(bill)
 
     async def delete_draft(self, tenant_id: UUID, bill_id: UUID) -> None:
@@ -342,17 +362,40 @@ class BillService:
         if due < issue:
             raise ValidationError("Due date cannot be earlier than issue date.")
 
-    @staticmethod
-    def _line_from_input(i: dict[str, object]) -> BillLine:
-        raw_id = str(i["account_id"])
-        account_id = UUID(raw_id) if raw_id else UUID(int=0)
-        return BillLine(
+    async def _line_from_input(
+        self,
+        tenant_id: UUID,
+        item: dict[str, object],
+    ) -> BillLine:
+        raw_account_id = str(item["account_id"])
+        account_id = UUID(raw_account_id) if raw_account_id else UUID(int=0)
+
+        raw_gst_code_id = item.get("gst_code_id")
+        gst_code_id = UUID(str(raw_gst_code_id)) if raw_gst_code_id else None
+        gst_rate = Decimal(str(item.get("gst_rate", 0)))
+
+        if gst_code_id is not None:
+            gst_code = await self._gst.get_code_by_id(tenant_id, gst_code_id)
+            if gst_code is None:
+                raise ValidationError(f"GST code {gst_code_id} not found for this tenant.")
+            if not gst_code.is_active:
+                raise ValidationError(f"GST code {gst_code.code} is not active.")
+            if gst_code.gst_kind not in _BILL_GST_KINDS:
+                raise ValidationError(f"GST code {gst_code.code} cannot be used on a bill.")
+            gst_rate = gst_code.rate
+        elif gst_rate > _ZERO:
+            raise ValidationError("GST code is required for a bill line with GST.")
+
+        line = BillLine(
             account_id=account_id,
-            quantity=Decimal(str(i.get("quantity", 1))),
-            unit_price=Decimal(str(i.get("unit_price", 0))),
-            description=str(i.get("description")) if i.get("description") else None,
-            gst_rate=Decimal(str(i.get("gst_rate", 0))),
+            quantity=Decimal(str(item.get("quantity", 1))),
+            unit_price=Decimal(str(item.get("unit_price", 0))),
+            description=str(item.get("description")) if item.get("description") else None,
+            gst_code_id=gst_code_id,
+            gst_rate=gst_rate,
         )
+        line.recalculate()
+        return line
 
     async def _require_draft(self, tenant_id: UUID, bill_id: UUID) -> Bill:
         bill = await self._bills.get_by_id(tenant_id, bill_id)
@@ -401,6 +444,45 @@ class BillService:
                 raise ValidationError(
                     f"Account {acc.code} ({acc.name}) is not an expense or asset account."
                 )
+
+    def _build_gst_transactions(self, bill: Bill) -> list[GstTransaction]:
+        """Aggregate bill lines into one GST transaction per GST code."""
+        tenant_id = bill.tenant_id
+        if tenant_id is None:
+            raise ValidationError("Bill tenant id is required for GST reporting.")
+        if bill.issue_date is None:
+            raise ValidationError("Bill issue date is required for GST reporting.")
+
+        grouped: dict[UUID, tuple[Decimal, Decimal]] = {}
+        for line in bill.lines:
+            if line.gst_code_id is None:
+                if line.gst_rate > _ZERO or line.gst_amount > _ZERO:
+                    raise ValidationError("GST code is required for a bill line with GST.")
+                continue
+
+            taxable_amount, gst_amount = grouped.get(
+                line.gst_code_id,
+                (_ZERO, _ZERO),
+            )
+            grouped[line.gst_code_id] = (
+                taxable_amount + line.line_total,
+                gst_amount + line.gst_amount,
+            )
+
+        reporting_period = _gst_reporting_period(bill.issue_date)
+        return [
+            GstTransaction(
+                tenant_id=tenant_id,
+                source_type=GstSourceType.BILL,
+                source_id=bill.id,
+                gst_code_id=gst_code_id,
+                taxable_amount=taxable_amount,
+                gst_amount=gst_amount,
+                reporting_period=reporting_period,
+                transaction_date=bill.issue_date,
+            )
+            for gst_code_id, (taxable_amount, gst_amount) in grouped.items()
+        ]
 
     async def _next_bill_number(self, tenant_id: UUID) -> str:
         prefix = "BILL-"

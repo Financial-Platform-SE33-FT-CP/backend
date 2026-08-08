@@ -39,21 +39,6 @@ class TenantRepository(ABC):
     async def seed_default_coa(self, tenant_id: TenantId) -> None: ...
 
     @abstractmethod
-    async def write_audit_tenant_created(self, *, tenant_id: TenantId, user_id: UserId) -> None: ...
-
-    @abstractmethod
-    async def write_audit_rbac_denied(
-        self,
-        *,
-        tenant_id: TenantId,
-        user_id: UserId,
-        permission: str,
-        reason: str,
-        request_id: str | None,
-        target_resource: str | None = None,
-    ) -> None: ...
-
-    @abstractmethod
     async def list_coa_for_tenant(self, tenant_id: TenantId) -> list[CoaAccountRow]: ...
 
     @abstractmethod
