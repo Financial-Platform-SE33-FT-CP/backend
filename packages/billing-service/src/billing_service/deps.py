@@ -5,6 +5,7 @@ from __future__ import annotations
 import uuid
 from collections.abc import AsyncGenerator
 from functools import lru_cache
+from typing import cast
 
 from fastapi import Depends, Request
 from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
@@ -38,10 +39,13 @@ async def get_access_token_payload(
         raise UnauthorizedError("Not authenticated.")
     settings = get_settings()
     try:
-        return jwt.decode(
-            credentials.credentials,
-            settings.jwt_secret,
-            algorithms=[settings.jwt_algorithm],
+        return cast(
+            dict[str, object],
+            jwt.decode(
+                credentials.credentials,
+                settings.jwt_secret,
+                algorithms=[settings.jwt_algorithm],
+            ),
         )
     except JWTError as e:
         raise UnauthorizedError("Not authenticated.") from e

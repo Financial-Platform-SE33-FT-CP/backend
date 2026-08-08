@@ -2,6 +2,7 @@
 
 from __future__ import annotations
 
+from collections.abc import AsyncGenerator
 from contextlib import asynccontextmanager
 
 from fastapi import FastAPI
@@ -18,7 +19,7 @@ settings = BillingSettings()
 
 
 @asynccontextmanager
-async def lifespan(app: FastAPI):
+async def lifespan(app: FastAPI) -> AsyncGenerator[None, None]:
     engine = create_async_engine(settings.database_url)
     app.state.engine = engine
     app.state.session_factory = async_sessionmaker(engine, expire_on_commit=False)
@@ -42,7 +43,6 @@ app.add_middleware(RequestIDMiddleware)
 app.add_middleware(TenantContextMiddleware)
 register_exception_handlers(app)
 app.include_router(router, prefix="/billing")
-
 
 
 @app.get("/health")

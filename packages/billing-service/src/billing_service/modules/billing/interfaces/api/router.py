@@ -41,6 +41,14 @@ def _requested_plan_tier(value: object) -> PlanTier:
         raise HTTPException(status_code=400, detail=f"Invalid plan tier: {value}") from e
 
 
+def _trial_has_expired(trial_ends_at: datetime | None, now: datetime) -> bool:
+    if trial_ends_at is None:
+        return False
+    if trial_ends_at.tzinfo is None:
+        trial_ends_at = trial_ends_at.replace(tzinfo=UTC)
+    return trial_ends_at < now
+
+
 def _event_value(event_obj: object, key: str) -> object:
     if isinstance(event_obj, Mapping):
         return event_obj.get(key)
@@ -126,7 +134,7 @@ async def get_plan(
     tenant_id: Annotated[str, Depends(get_current_tenant_id_str)],
     session: Annotated[AsyncSession, Depends(get_async_session)],
     _: Annotated[None, Depends(RequireBillingPermission(P_TENANT_READ))],
-) -> dict:
+) -> dict[str, object]:
     tenant_uuid = uuid.UUID(tenant_id)
 
     stmt = select(TenantModel).where(TenantModel.id == tenant_uuid)
@@ -153,11 +161,7 @@ async def get_plan(
     )
     user_count = user_count_result.scalar() or 0
     # Check trial expiry inline
-    if (
-        tenant.subscription_status == "trial"
-        and tenant.trial_ends_at
-        and tenant.trial_ends_at < now
-    ):
+    if tenant.subscription_status == "trial" and _trial_has_expired(tenant.trial_ends_at, now):
         tenant.subscription_status = "expired"
         tenant.plan_tier = PlanTier.STARTER.value
         await session.flush()
@@ -192,8 +196,11 @@ async def change_plan(
     session: Annotated[AsyncSession, Depends(get_async_session)],
     settings: Annotated[BillingSettings, Depends(get_settings)],
     _: Annotated[None, Depends(RequireBillingPermission(P_TENANT_UPDATE))],
-) -> dict:
-    body = await request.json()
+) -> dict[str, object]:
+    try:
+        body = await request.json()
+    except (UnicodeDecodeError, json.JSONDecodeError) as e:
+        raise HTTPException(status_code=400, detail="Invalid JSON body.") from e
     if not isinstance(body, dict):
         raise HTTPException(status_code=400, detail="Request body must be an object.")
     plan = _requested_plan_tier(body.get("plan_tier", PlanTier.GROWTH.value))
@@ -298,22 +305,30 @@ async def change_plan(
     stripe_lib.api_key = settings.stripe_secret_key
 
     if not tenant.stripe_customer_id:
-        customer = stripe_lib.Customer.create(
-            metadata={"tenant_id": str(tenant_id)},
-        )
+        try:
+            customer = stripe_lib.Customer.create(
+                metadata={"tenant_id": str(tenant_id)},
+            )
+        except stripe_lib.error.StripeError as e:
+            raise HTTPException(status_code=502, detail="Unable to create Stripe customer.") from e
         tenant.stripe_customer_id = customer.id
         await session.flush()
 
-    checkout_session = stripe_lib.checkout.Session.create(
-        customer=tenant.stripe_customer_id,
-        payment_method_types=["card"],
-        line_items=[{"price": price_id, "quantity": 1}],
-        mode="subscription",
-        success_url=f"{settings.frontend_url}/billing?session_id={{CHECKOUT_SESSION_ID}}",
-        cancel_url=f"{settings.frontend_url}/billing?canceled=true",
-        metadata={"tenant_id": str(tenant_id), "plan_tier": plan_tier},
-        subscription_data={"metadata": {"tenant_id": str(tenant_id), "plan_tier": plan_tier}},
-    )
+    try:
+        checkout_session = stripe_lib.checkout.Session.create(
+            customer=tenant.stripe_customer_id,
+            payment_method_types=["card"],
+            line_items=[{"price": price_id, "quantity": 1}],
+            mode="subscription",
+            success_url=f"{settings.frontend_url}/billing?session_id={{CHECKOUT_SESSION_ID}}",
+            cancel_url=f"{settings.frontend_url}/billing?canceled=true",
+            metadata={"tenant_id": str(tenant_id), "plan_tier": plan_tier},
+            subscription_data={"metadata": {"tenant_id": str(tenant_id), "plan_tier": plan_tier}},
+        )
+    except stripe_lib.error.StripeError as e:
+        raise HTTPException(
+            status_code=502, detail="Unable to create Stripe checkout session."
+        ) from e
 
     return {"url": checkout_session.url, "changed": False}
 
@@ -326,7 +341,7 @@ async def stripe_webhook(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     settings: Annotated[BillingSettings, Depends(get_settings)],
-) -> dict:
+) -> dict[str, object]:
     payload = await request.body()
     sig_header = request.headers.get("stripe-signature")
 
@@ -345,7 +360,7 @@ async def stripe_webhook(
             raise HTTPException(status_code=503, detail="Stripe webhook is not configured.")
         try:
             stripe_lib.api_key = settings.stripe_secret_key
-            event = stripe_lib.Webhook.construct_event(
+            event = stripe_lib.Webhook.construct_event(  # type: ignore[no-untyped-call]
                 payload, sig_header or "", settings.stripe_webhook_secret
             )
         except (ValueError, stripe_lib.error.SignatureVerificationError) as e:
@@ -412,7 +427,7 @@ async def check_plan_limit(
     request: Request,
     session: Annotated[AsyncSession, Depends(get_async_session)],
     settings: Annotated[BillingSettings, Depends(get_settings)],
-) -> dict:
+) -> dict[str, object]:
     internal_token = request.headers.get("X-Internal-Token", "")
     if not internal_token or internal_token != settings.tenant_internal_api_token:
         raise HTTPException(status_code=401, detail="Invalid internal token")
@@ -423,9 +438,15 @@ async def check_plan_limit(
 
     resource = request.query_params.get("resource", "")
     current_count_str = request.query_params.get("current_count", "0")
-    current_count = int(current_count_str)
+    try:
+        current_count = int(current_count_str)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="current_count must be an integer.") from e
 
-    tenant_uuid = uuid.UUID(tenant_id)
+    try:
+        tenant_uuid = uuid.UUID(tenant_id)
+    except ValueError as e:
+        raise HTTPException(status_code=400, detail="X-Tenant-ID must be a valid UUID.") from e
     stmt = select(TenantModel).where(TenantModel.id == tenant_uuid)
     result = await session.execute(stmt)
     tenant = result.scalar_one_or_none()
@@ -436,11 +457,7 @@ async def check_plan_limit(
     limits = PLAN_LIMITS[plan]
 
     now = datetime.now(UTC)
-    if (
-        tenant.subscription_status == "trial"
-        and tenant.trial_ends_at
-        and tenant.trial_ends_at < now
-    ):
+    if tenant.subscription_status == "trial" and _trial_has_expired(tenant.trial_ends_at, now):
         tenant.subscription_status = "expired"
         tenant.plan_tier = PlanTier.STARTER.value
         plan = PlanTier.STARTER
