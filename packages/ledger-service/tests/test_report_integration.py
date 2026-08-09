@@ -123,30 +123,77 @@ async def seeded(session):
     cogs_id = uuid.uuid4()
     rent_id = uuid.uuid4()
 
-    await _seed_account(session, tid=tid, aid=cash_id, code="1000", name="Cash", atype=AccountType.ASSET)
-    await _seed_account(session, tid=tid, aid=ar_id, code="1100", name="Accounts Receivable", atype=AccountType.ASSET)
-    await _seed_account(session, tid=tid, aid=ap_id, code="2000", name="Accounts Payable", atype=AccountType.LIABILITY)
-    await _seed_account(session, tid=tid, aid=share_cap_id, code="3000", name="Share Capital", atype=AccountType.EQUITY)
-    await _seed_account(session, tid=tid, aid=sales_id, code="4000", name="Sales Revenue", atype=AccountType.REVENUE)
-    await _seed_account(session, tid=tid, aid=cogs_id, code="5000", name="COGS", atype=AccountType.EXPENSE)
-    await _seed_account(session, tid=tid, aid=rent_id, code="6000", name="Rent Expense", atype=AccountType.EXPENSE)
+    await _seed_account(
+        session, tid=tid, aid=cash_id, code="1000", name="Cash", atype=AccountType.ASSET
+    )
+    await _seed_account(
+        session,
+        tid=tid,
+        aid=ar_id,
+        code="1100",
+        name="Accounts Receivable",
+        atype=AccountType.ASSET,
+    )
+    await _seed_account(
+        session,
+        tid=tid,
+        aid=ap_id,
+        code="2000",
+        name="Accounts Payable",
+        atype=AccountType.LIABILITY,
+    )
+    await _seed_account(
+        session,
+        tid=tid,
+        aid=share_cap_id,
+        code="3000",
+        name="Share Capital",
+        atype=AccountType.EQUITY,
+    )
+    await _seed_account(
+        session, tid=tid, aid=sales_id, code="4000", name="Sales Revenue", atype=AccountType.REVENUE
+    )
+    await _seed_account(
+        session, tid=tid, aid=cogs_id, code="5000", name="COGS", atype=AccountType.EXPENSE
+    )
+    await _seed_account(
+        session, tid=tid, aid=rent_id, code="6000", name="Rent Expense", atype=AccountType.EXPENSE
+    )
 
     # ── journal entries ──
-    await _seed_journal(session, tid=tid_str, eid=str(uuid.uuid4()), entry_date=date(2026, 7, 1),
-                        reference="JE-1", lines=[
-                            (str(cash_id), "5000.00", "0.00"),
-                            (str(share_cap_id), "0.00", "5000.00"),
-                        ])
-    await _seed_journal(session, tid=tid_str, eid=str(uuid.uuid4()), entry_date=date(2026, 7, 10),
-                        reference="JE-2", lines=[
-                            (str(cash_id), "3000.00", "0.00"),
-                            (str(sales_id), "0.00", "3000.00"),
-                        ])
-    await _seed_journal(session, tid=tid_str, eid=str(uuid.uuid4()), entry_date=date(2026, 7, 20),
-                        reference="JE-3", lines=[
-                            (str(cogs_id), "1200.00", "0.00"),
-                            (str(cash_id), "0.00", "1200.00"),
-                        ])
+    await _seed_journal(
+        session,
+        tid=tid_str,
+        eid=str(uuid.uuid4()),
+        entry_date=date(2026, 7, 1),
+        reference="JE-1",
+        lines=[
+            (str(cash_id), "5000.00", "0.00"),
+            (str(share_cap_id), "0.00", "5000.00"),
+        ],
+    )
+    await _seed_journal(
+        session,
+        tid=tid_str,
+        eid=str(uuid.uuid4()),
+        entry_date=date(2026, 7, 10),
+        reference="JE-2",
+        lines=[
+            (str(cash_id), "3000.00", "0.00"),
+            (str(sales_id), "0.00", "3000.00"),
+        ],
+    )
+    await _seed_journal(
+        session,
+        tid=tid_str,
+        eid=str(uuid.uuid4()),
+        entry_date=date(2026, 7, 20),
+        reference="JE-3",
+        lines=[
+            (str(cogs_id), "1200.00", "0.00"),
+            (str(cash_id), "0.00", "1200.00"),
+        ],
+    )
 
     return {
         "tid": tid_str,
@@ -177,9 +224,9 @@ async def test_profit_loss_calculates_correctly(session, seeded) -> None:
     )
 
     assert isinstance(pl, ProfitLossReport)
-    assert pl.total_revenue == Decimal("3000.00")   # JE-2: Sales 3000
-    assert pl.total_expense == Decimal("1200.00")    # JE-3: COGS 1200
-    assert pl.net_profit == Decimal("1800.00")       # 3000 - 1200
+    assert pl.total_revenue == Decimal("3000.00")  # JE-2: Sales 3000
+    assert pl.total_expense == Decimal("1200.00")  # JE-3: COGS 1200
+    assert pl.net_profit == Decimal("1800.00")  # 3000 - 1200
     assert len(pl.revenue_lines) == 1
     assert len(pl.expense_lines) == 1
     assert pl.revenue_lines[0].account_code == "4000"
@@ -199,8 +246,8 @@ async def test_profit_loss_excludes_bs_accounts(session, seeded) -> None:
     )
 
     all_codes = {ln.account_code for ln in pl.revenue_lines + pl.expense_lines}
-    assert "1000" not in all_codes   # Cash
-    assert "3000" not in all_codes   # Share Capital
+    assert "1000" not in all_codes  # Cash
+    assert "3000" not in all_codes  # Share Capital
 
 
 @pytest.mark.asyncio
@@ -216,8 +263,8 @@ async def test_profit_loss_with_date_range(session, seeded) -> None:
         to_date=date(2026, 7, 25),
     )
 
-    assert pl.total_revenue == Decimal("3000.00")   # JE-2: 2026-07-10
-    assert pl.total_expense == Decimal("1200.00")    # JE-3: 2026-07-20
+    assert pl.total_revenue == Decimal("3000.00")  # JE-2: 2026-07-10
+    assert pl.total_expense == Decimal("1200.00")  # JE-3: 2026-07-20
 
 
 # ── Balance Sheet integration tests ─────────────────────────────────────────────
@@ -252,7 +299,9 @@ async def test_balance_sheet_retained_earnings_equals_cumulative_pl(session, see
     svc = ReportService(repo)
 
     bs = await svc.get_balance_sheet(tenant_id=seeded["tid"], as_of_date=date(2026, 7, 31))
-    pl = await svc.get_profit_loss(tenant_id=seeded["tid"], from_date=None, to_date=date(2026, 7, 31))
+    pl = await svc.get_profit_loss(
+        tenant_id=seeded["tid"], from_date=None, to_date=date(2026, 7, 31)
+    )
 
     assert bs.retained_earnings == pl.net_profit
 
@@ -272,7 +321,7 @@ async def test_cash_flow_reconciles(session, seeded) -> None:
     )
 
     assert isinstance(cf, CashFlowReport)
-    assert cf.net_income == Decimal("1800.00")   # from P&L
+    assert cf.net_income == Decimal("1800.00")  # from P&L
     # Net income 1800, no operating adjustments → operating CF = 1800
     assert cf.operating_cash_flow == Decimal("1800.00")
     # Cash: JE-1=5000 + JE-2=3000 - JE-3=1200 = 6800 end
@@ -297,7 +346,7 @@ async def test_repository_account_summaries_respect_dates(session, seeded) -> No
         to_date=date(2026, 7, 1),
     )
     codes = {ln.account_code for ln in lines}
-    assert codes == {"1000", "3000"}   # JE-1 only
+    assert codes == {"1000", "3000"}  # JE-1 only
 
 
 @pytest.mark.asyncio
@@ -305,14 +354,16 @@ async def test_repository_historical_net_profit(session, seeded) -> None:
     repo = SqlAlchemyReportRepository(session)
 
     np_mid = await repo.get_historical_net_profit(
-        tenant_id=seeded["tid"], as_of_date=date(2026, 7, 15),
+        tenant_id=seeded["tid"],
+        as_of_date=date(2026, 7, 15),
     )
     np_end = await repo.get_historical_net_profit(
-        tenant_id=seeded["tid"], as_of_date=date(2026, 7, 31),
+        tenant_id=seeded["tid"],
+        as_of_date=date(2026, 7, 31),
     )
 
-    assert np_mid == Decimal("3000.00")   # JE-2 only (revenue), JE-3 not yet
-    assert np_end == Decimal("1800.00")   # all entries
+    assert np_mid == Decimal("3000.00")  # JE-2 only (revenue), JE-3 not yet
+    assert np_end == Decimal("1800.00")  # all entries
 
 
 # ── Invariant tests ─────────────────────────────────────────────────────────────
@@ -327,8 +378,9 @@ async def test_invariant_balance_sheet_always_balances(session, seeded) -> None:
     for d in [date(2026, 7, 1), date(2026, 7, 15), date(2026, 7, 31)]:
         bs = await svc.get_balance_sheet(tenant_id=seeded["tid"], as_of_date=d)
         assert bs.is_balanced, f"BS not balanced at {d}: imbalance={bs.imbalance}"
-        assert bs.total_assets == bs.total_liabilities + bs.total_equity, \
+        assert bs.total_assets == bs.total_liabilities + bs.total_equity, (
             f"A={bs.total_assets} != L+E={bs.total_liabilities + bs.total_equity} at {d}"
+        )
 
 
 @pytest.mark.asyncio
@@ -347,8 +399,7 @@ async def test_invariant_pl_net_profit_equals_retained_earnings_delta(session, s
     bs_end = await svc.get_balance_sheet(tenant_id=seeded["tid"], as_of_date=date(2026, 7, 25))
 
     re_delta = bs_end.retained_earnings - bs_start.retained_earnings
-    assert pl.net_profit == re_delta, \
-        f"P&L net={pl.net_profit} != RE delta={re_delta}"
+    assert pl.net_profit == re_delta, f"P&L net={pl.net_profit} != RE delta={re_delta}"
 
 
 @pytest.mark.asyncio

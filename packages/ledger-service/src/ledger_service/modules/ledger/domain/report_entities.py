@@ -17,7 +17,7 @@ class ReportAccountLine:
     account_id: str
     account_code: str
     account_name: str
-    account_type: str    # "asset" | "liability" | "equity" | "revenue" | "expense"
+    account_type: str  # "asset" | "liability" | "equity" | "revenue" | "expense"
     total_debit: Decimal = field(default_factory=Decimal)
     total_credit: Decimal = field(default_factory=Decimal)
 
@@ -30,6 +30,7 @@ class ReportAccountLine:
 @dataclass(frozen=True)
 class ProfitLossReport:
     """Income statement for a date range."""
+
     from_date: date
     to_date: date
     revenue_lines: list[ReportAccountLine]
@@ -46,14 +47,15 @@ class ProfitLossReport:
 @dataclass(frozen=True)
 class BalanceSheetReport:
     """Statement of financial position as of a specific date."""
+
     as_of_date: date
     asset_lines: list[ReportAccountLine]
     liability_lines: list[ReportAccountLine]
     equity_lines: list[ReportAccountLine]
-    retained_earnings: Decimal   # computed: historical Σ(revenue - expense)
+    retained_earnings: Decimal  # computed: historical Σ(revenue - expense)
     total_assets: Decimal
     total_liabilities: Decimal
-    total_equity: Decimal        # COA equity + retained_earnings
+    total_equity: Decimal  # COA equity + retained_earnings
 
     @property
     def is_balanced(self) -> bool:
@@ -67,17 +69,19 @@ class BalanceSheetReport:
 
 # ── Cash Flow (Phase 4 stubs — types defined for forward reference) ─────────
 
+
 @dataclass(frozen=True)
 class CashFlowSectionLine:
     account_id: str
     account_code: str
     account_name: str
-    change_amount: Decimal   # Δ between two periods
+    change_amount: Decimal  # Δ between two periods
 
 
 @dataclass(frozen=True)
 class CashFlowReport:
     """Statement of cash flows — indirect method."""
+
     from_date: date
     to_date: date
     net_income: Decimal

@@ -68,9 +68,7 @@ class SqlAlchemyReportRepository(ReportRepository):
         agg_sub = (
             select(
                 JournalEntryLineModel.account_id.label("account_id"),
-                func.coalesce(func.sum(JournalEntryLineModel.debit_amount), 0).label(
-                    "total_debit"
-                ),
+                func.coalesce(func.sum(JournalEntryLineModel.debit_amount), 0).label("total_debit"),
                 func.coalesce(func.sum(JournalEntryLineModel.credit_amount), 0).label(
                     "total_credit"
                 ),
@@ -177,8 +175,7 @@ class SqlAlchemyReportRepository(ReportRepository):
                 JournalEntryLineModel.account_id.label("account_id"),
                 func.coalesce(
                     func.sum(
-                        JournalEntryLineModel.debit_amount
-                        - JournalEntryLineModel.credit_amount
+                        JournalEntryLineModel.debit_amount - JournalEntryLineModel.credit_amount
                     ),
                     0,
                 ).label("net_amount"),

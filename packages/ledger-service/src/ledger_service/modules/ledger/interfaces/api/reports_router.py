@@ -41,7 +41,9 @@ async def get_profit_loss(
     _: Annotated[None, Depends(RequireLedgerPermission(P_ACCOUNTING_READ))],
     tenant_id: Annotated[TenantId, Depends(require_tenant_id)],
     service: Annotated[ReportService, Depends(get_report_service)],
-    from_date: date | None = Query(None, description="Period start (inclusive). None = earliest entry."),
+    from_date: date | None = Query(
+        None, description="Period start (inclusive). None = earliest entry."
+    ),
     to_date: date = Query(..., description="Period end (inclusive)."),
 ) -> ProfitLossResponse:
     report = await service.get_profit_loss(

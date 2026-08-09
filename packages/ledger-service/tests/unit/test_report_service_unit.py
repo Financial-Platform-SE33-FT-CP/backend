@@ -63,7 +63,9 @@ class TestProfitLoss:
         service = ReportService(_mock_repo(lines))
 
         report = await service.get_profit_loss(
-            tenant_id=TENANT, from_date=FY_START, to_date=TODAY,
+            tenant_id=TENANT,
+            from_date=FY_START,
+            to_date=TODAY,
         )
 
         assert report.total_revenue == Decimal("1000.00")
@@ -81,7 +83,9 @@ class TestProfitLoss:
         service = ReportService(_mock_repo(lines))
 
         report = await service.get_profit_loss(
-            tenant_id=TENANT, from_date=FY_START, to_date=TODAY,
+            tenant_id=TENANT,
+            from_date=FY_START,
+            to_date=TODAY,
         )
 
         assert report.total_revenue == Decimal("500.00")
@@ -94,7 +98,9 @@ class TestProfitLoss:
         service = ReportService(_mock_repo(lines))
 
         report = await service.get_profit_loss(
-            tenant_id=TENANT, from_date=FY_START, to_date=TODAY,
+            tenant_id=TENANT,
+            from_date=FY_START,
+            to_date=TODAY,
         )
 
         assert report.total_revenue == _ZERO
@@ -115,7 +121,9 @@ class TestProfitLoss:
         service = ReportService(_mock_repo(lines))
 
         report = await service.get_profit_loss(
-            tenant_id=TENANT, from_date=FY_START, to_date=TODAY,
+            tenant_id=TENANT,
+            from_date=FY_START,
+            to_date=TODAY,
         )
 
         assert len(report.revenue_lines) == 1
@@ -146,7 +154,9 @@ class TestProfitLoss:
         service = ReportService(_mock_repo(lines))
 
         report = await service.get_profit_loss(
-            tenant_id=TENANT, from_date=FY_START, to_date=TODAY,
+            tenant_id=TENANT,
+            from_date=FY_START,
+            to_date=TODAY,
         )
 
         codes_r = [ln.account_code for ln in report.revenue_lines]
@@ -170,12 +180,13 @@ class TestBalanceSheet:
         service = ReportService(_mock_repo(lines, historical))
 
         report = await service.get_balance_sheet(
-            tenant_id=TENANT, as_of_date=TODAY,
+            tenant_id=TENANT,
+            as_of_date=TODAY,
         )
 
         assert report.total_assets == Decimal("5000.00")
         assert report.total_liabilities == Decimal("1000.00")
-        assert report.total_equity == Decimal("4000.00")   # 1000 + 3000
+        assert report.total_equity == Decimal("4000.00")  # 1000 + 3000
         assert report.retained_earnings == Decimal("3000.00")
         assert report.is_balanced is True
         assert report.imbalance == _ZERO
@@ -190,10 +201,11 @@ class TestBalanceSheet:
         service = ReportService(_mock_repo(lines, historical))
 
         report = await service.get_balance_sheet(
-            tenant_id=TENANT, as_of_date=TODAY,
+            tenant_id=TENANT,
+            as_of_date=TODAY,
         )
 
-        assert report.total_equity == Decimal("1500.00")   # 2000 + (-500)
+        assert report.total_equity == Decimal("1500.00")  # 2000 + (-500)
         assert report.retained_earnings == Decimal("-500.00")
         # A=1000, L=0, E=1500 → not balanced (test data is deliberately imbalanced)
         assert report.is_balanced is False
@@ -210,7 +222,8 @@ class TestBalanceSheet:
         service = ReportService(_mock_repo(lines, historical))
 
         report = await service.get_balance_sheet(
-            tenant_id=TENANT, as_of_date=TODAY,
+            tenant_id=TENANT,
+            as_of_date=TODAY,
         )
 
         assert report.is_balanced is False
@@ -221,7 +234,8 @@ class TestBalanceSheet:
         service = ReportService(_mock_repo([], _ZERO))
 
         report = await service.get_balance_sheet(
-            tenant_id=TENANT, as_of_date=TODAY,
+            tenant_id=TENANT,
+            as_of_date=TODAY,
         )
 
         assert report.total_assets == _ZERO
@@ -242,7 +256,8 @@ class TestBalanceSheet:
         service = ReportService(_mock_repo(lines, _ZERO))
 
         report = await service.get_balance_sheet(
-            tenant_id=TENANT, as_of_date=TODAY,
+            tenant_id=TENANT,
+            as_of_date=TODAY,
         )
 
         assert [ln.account_code for ln in report.asset_lines] == ["1000", "1500"]
@@ -264,7 +279,9 @@ class TestEdgeCases:
         service = ReportService(_mock_repo(lines))
 
         report = await service.get_profit_loss(
-            tenant_id=TENANT, from_date=FY_START, to_date=TODAY,
+            tenant_id=TENANT,
+            from_date=FY_START,
+            to_date=TODAY,
         )
 
         assert report.total_revenue == Decimal("1000.00")

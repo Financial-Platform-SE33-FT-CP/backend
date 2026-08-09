@@ -8,6 +8,7 @@ from pydantic import BaseModel, ConfigDict
 
 # ── shared line ────────────────────────────────────────────────────────────────
 
+
 class ReportAccountLineResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -22,6 +23,7 @@ class ReportAccountLineResponse(BaseModel):
 
 # ── P&L ────────────────────────────────────────────────────────────────────────
 
+
 class ProfitLossResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
@@ -35,6 +37,7 @@ class ProfitLossResponse(BaseModel):
 
 
 # ── Balance Sheet ──────────────────────────────────────────────────────────────
+
 
 class BalanceSheetResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)
@@ -52,6 +55,7 @@ class BalanceSheetResponse(BaseModel):
 
 
 # ── Cash Flow ──────────────────────────────────────────────────────────────────
+
 
 class CashFlowSectionLineResponse(BaseModel):
     model_config = ConfigDict(from_attributes=True)

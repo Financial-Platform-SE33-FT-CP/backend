@@ -118,15 +118,19 @@ class ReportService:
 
         # Net income for the period
         pnl = await self.get_profit_loss(
-            tenant_id=tenant_id, from_date=from_date, to_date=to_date,
+            tenant_id=tenant_id,
+            from_date=from_date,
+            to_date=to_date,
         )
 
         # Balance sheets at start and end of period
         bs_end = await self.get_balance_sheet(
-            tenant_id=tenant_id, as_of_date=to_date,
+            tenant_id=tenant_id,
+            as_of_date=to_date,
         )
         bs_start = await self.get_balance_sheet(
-            tenant_id=tenant_id, as_of_date=from_date,
+            tenant_id=tenant_id,
+            as_of_date=from_date,
         )
 
         # Compute per-account changes from start → end
@@ -199,7 +203,7 @@ class ReportService:
             if section == CFSection.CASH:
                 beginning_cash = start_net
                 ending_cash = end_net
-                continue   # cash itself is the reconciliation target, not an adjustment
+                continue  # cash itself is the reconciliation target, not an adjustment
 
             # Cash flow impact: for assets (debit normal), negative change = cash inflow
             # for liabilities/equity (credit normal), positive change = cash inflow
@@ -207,9 +211,9 @@ class ReportService:
                 CFSection.OPERATING_ASSET,
                 CFSection.INVESTING_ASSET,
             ):
-                cash_impact = -change   # asset increase = cash used
+                cash_impact = -change  # asset increase = cash used
             else:
-                cash_impact = change    # liability/equity increase = cash source
+                cash_impact = change  # liability/equity increase = cash source
 
             line = CashFlowSectionLine(
                 account_id=account.account_id,
@@ -228,9 +232,7 @@ class ReportService:
         # Non-cash expense add-backs are not yet classified in the COA.
         # Future: map account_code → CFSection.NON_CASH_EXPENSE and add Depreciation etc.
 
-        operating_cf = pnl.net_profit + sum(
-            ln.change_amount for ln in operating_adjustments
-        )
+        operating_cf = pnl.net_profit + sum(ln.change_amount for ln in operating_adjustments)
         investing_cf = sum(ln.change_amount for ln in investing_adjustments)
         financing_cf = sum(ln.change_amount for ln in financing_adjustments)
         net_cash_change = operating_cf + investing_cf + financing_cf
@@ -265,7 +267,7 @@ class ReportService:
         # All journal activity through as_of_date
         lines = await self._repo.get_account_summaries(
             tenant_id=tenant_id,
-            from_date=None,     # from the beginning
+            from_date=None,  # from the beginning
             to_date=as_of_date,
         )
 

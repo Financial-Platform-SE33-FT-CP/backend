@@ -12,10 +12,10 @@ class ReportAccountLineDTO(BaseModel):
     account_id: str
     account_code: str
     account_name: str
-    account_type: str        # "asset" | "liability" | "equity" | "revenue" | "expense"
+    account_type: str  # "asset" | "liability" | "equity" | "revenue" | "expense"
     total_debit: Decimal
     total_credit: Decimal
-    net_amount: Decimal      # debit - credit
+    net_amount: Decimal  # debit - credit
 
 
 class ProfitLossReportDTO(BaseModel):
@@ -47,13 +47,14 @@ class BalanceSheetReportDTO(BaseModel):
 
 # ── Cash Flow ──────────────────────────────────────────────────────────────────
 
+
 class CashFlowSectionLineDTO(BaseModel):
     model_config = ConfigDict(from_attributes=True)
 
     account_id: str
     account_code: str
     account_name: str
-    change_amount: Decimal   # Δ between two periods (positive = cash inflow)
+    change_amount: Decimal  # Δ between two periods (positive = cash inflow)
 
 
 class CashFlowReportDTO(BaseModel):
