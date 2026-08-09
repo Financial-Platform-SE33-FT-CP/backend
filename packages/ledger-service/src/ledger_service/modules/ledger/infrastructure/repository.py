@@ -204,12 +204,8 @@ class SqlAlchemyJournalEntryRepository(JournalEntryRepository):
 
             totals_result = await self._session.execute(
                 select(
-                    func.coalesce(
-                        func.sum(JournalEntryLineModel.debit_amount), 0
-                    ),
-                    func.coalesce(
-                        func.sum(JournalEntryLineModel.credit_amount), 0
-                    ),
+                    func.coalesce(func.sum(JournalEntryLineModel.debit_amount), 0),
+                    func.coalesce(func.sum(JournalEntryLineModel.credit_amount), 0),
                 )
                 .join(
                     JournalEntryModel,
