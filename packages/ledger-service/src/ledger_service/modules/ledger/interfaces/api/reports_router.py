@@ -15,25 +15,28 @@ from ledger_service.deps import (
     require_tenant_id,
 )
 from ledger_service.modules.ledger.application.report_service import ReportService
+from ledger_service.modules.ledger.domain.report_entities import ReportAccountLine
+from ledger_service.modules.ledger.interfaces.api.report_schemas import ReportAccountLineResponse
 from ledger_service.modules.ledger.interfaces.api.report_schemas import (
     BalanceSheetResponse,
     CashFlowResponse,
+    CashFlowSectionLineResponse,
     ProfitLossResponse,
 )
 
 router = APIRouter(tags=["reports"])
 
 
-def _line_to_response(line) -> dict:
-    return {
-        "account_id": line.account_id,
-        "account_code": line.account_code,
-        "account_name": line.account_name,
-        "account_type": line.account_type,
-        "total_debit": line.total_debit,
-        "total_credit": line.total_credit,
-        "net_amount": line.net_amount,
-    }
+def _line_to_response(line: ReportAccountLine) -> ReportAccountLineResponse:
+    return ReportAccountLineResponse(
+        account_id=line.account_id,
+        account_code=line.account_code,
+        account_name=line.account_name,
+        account_type=line.account_type,
+        total_debit=line.total_debit,
+        total_credit=line.total_credit,
+        net_amount=line.net_amount,
+    )
 
 
 @router.get("/profit-loss", response_model=ProfitLossResponse)
@@ -105,32 +108,32 @@ async def get_cash_flow(
         to_date=report.to_date,
         net_income=report.net_income,
         operating_adjustments=[
-            {
-                "account_id": ln.account_id,
-                "account_code": ln.account_code,
-                "account_name": ln.account_name,
-                "change_amount": ln.change_amount,
-            }
+            CashFlowSectionLineResponse(
+                account_id=ln.account_id,
+                account_code=ln.account_code,
+                account_name=ln.account_name,
+                change_amount=ln.change_amount,
+            )
             for ln in report.operating_adjustments
         ],
         operating_cash_flow=report.operating_cash_flow,
         investing_adjustments=[
-            {
-                "account_id": ln.account_id,
-                "account_code": ln.account_code,
-                "account_name": ln.account_name,
-                "change_amount": ln.change_amount,
-            }
+            CashFlowSectionLineResponse(
+                account_id=ln.account_id,
+                account_code=ln.account_code,
+                account_name=ln.account_name,
+                change_amount=ln.change_amount,
+            )
             for ln in report.investing_adjustments
         ],
         investing_cash_flow=report.investing_cash_flow,
         financing_adjustments=[
-            {
-                "account_id": ln.account_id,
-                "account_code": ln.account_code,
-                "account_name": ln.account_name,
-                "change_amount": ln.change_amount,
-            }
+            CashFlowSectionLineResponse(
+                account_id=ln.account_id,
+                account_code=ln.account_code,
+                account_name=ln.account_name,
+                change_amount=ln.change_amount,
+            )
             for ln in report.financing_adjustments
         ],
         financing_cash_flow=report.financing_cash_flow,

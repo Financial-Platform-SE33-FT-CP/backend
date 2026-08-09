@@ -233,8 +233,8 @@ class ReportService:
         # Future: map account_code → CFSection.NON_CASH_EXPENSE and add Depreciation etc.
 
         operating_cf = pnl.net_profit + sum(ln.change_amount for ln in operating_adjustments)
-        investing_cf = sum(ln.change_amount for ln in investing_adjustments)
-        financing_cf = sum(ln.change_amount for ln in financing_adjustments)
+        investing_cf = sum(ln.change_amount for ln in investing_adjustments) + _ZERO
+        financing_cf = sum(ln.change_amount for ln in financing_adjustments) + _ZERO
         net_cash_change = operating_cf + investing_cf + financing_cf
 
         operating_adjustments.sort(key=lambda ln: ln.account_code)

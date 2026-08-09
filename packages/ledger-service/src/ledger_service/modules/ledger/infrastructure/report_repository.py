@@ -17,6 +17,7 @@ from decimal import Decimal
 from typing import Any
 
 from sqlalchemy import func, select
+from sqlalchemy import true as sa_true
 from sqlalchemy.ext.asyncio import AsyncSession
 
 from coa_service.modules.coa.infrastructure.models import AccountModel, AccountType
@@ -80,7 +81,7 @@ class SqlAlchemyReportRepository(ReportRepository):
             .where(
                 JournalEntryLineModel.tenant_id == tenant_id,
                 JournalEntryModel.tenant_id == tenant_id,
-                JournalEntryModel.entry_date >= from_date if from_date is not None else True,
+                JournalEntryModel.entry_date >= from_date if from_date is not None else sa_true(),
                 JournalEntryModel.entry_date <= to_date,
             )
             .group_by(JournalEntryLineModel.account_id)
