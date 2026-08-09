@@ -17,7 +17,7 @@ from pathlib import Path
 import pytest
 import pytest_asyncio
 from fastapi.testclient import TestClient
-from sqlalchemy import Column, String, Table, Uuid, text
+from sqlalchemy import Boolean, Column, String, Table, Uuid, text
 from sqlalchemy.ext.asyncio import AsyncSession, async_sessionmaker, create_async_engine
 
 from coa_service.modules.coa.infrastructure.models import AccountModel
@@ -56,14 +56,26 @@ async def tables(engine):
         await conn.execute(text("PRAGMA foreign_keys=OFF"))
 
         def create_journal_tables(sync_conn) -> None:
-            # Stub tenants table in both metadatas to satisfy FK constraints
-            # from chart_of_accounts, monthly_account_balances, and accounting_periods.
+            # Stub tenants + chart_of_accounts in both metadata scopes so that
+            # FK constraints on monthly_account_balances resolve correctly.
             for metadata in (AccountModel.metadata, JournalEntryModel.metadata):
                 _ = Table(
                     "tenants",
                     metadata,
                     Column("id", Uuid(as_uuid=True), primary_key=True),
                     Column("name", String(255)),
+                    extend_existing=True,
+                )
+                _ = Table(
+                    "chart_of_accounts",
+                    metadata,
+                    Column("id", Uuid(as_uuid=True), primary_key=True),
+                    Column("tenant_id", Uuid(as_uuid=True), nullable=False),
+                    Column("code", String(20), nullable=False),
+                    Column("name", String(255), nullable=False),
+                    Column("type", String(50), nullable=False),
+                    Column("parent_id", Uuid(as_uuid=True), nullable=True),
+                    Column("is_active", Boolean, nullable=False, server_default="1"),
                     extend_existing=True,
                 )
             AccountModel.__table__.create(sync_conn, checkfirst=True)
