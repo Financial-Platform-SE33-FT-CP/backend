@@ -3,6 +3,7 @@ from __future__ import annotations
 import uuid
 from datetime import UTC, datetime
 
+from accounting_shared.audit_client import AuditHttpClient, CreateAuditLogDTO
 from accounting_shared.exceptions import (
     BadRequestError,
     ForbiddenError,
@@ -44,9 +45,39 @@ SUPPORTED_CURRENCIES = frozenset({"SGD", "USD", "EUR", "GBP", "AUD", "MYR", "CNY
 class TenantService:
     """Application service for tenant management."""
 
-    def __init__(self, repository: TenantRepository, settings: object) -> None:
+    def __init__(
+        self,
+        repository: TenantRepository,
+        settings: object,
+        audit_client: AuditHttpClient | None = None,
+    ) -> None:
         self._repository = repository
         self._settings = settings
+        self._audit_client = audit_client
+
+    def _emit_audit(
+        self,
+        *,
+        tenant_id: TenantId,
+        user_id: UserId,
+        action: str,
+        entity_type: str,
+        entity_id: str,
+        changes: dict[str, object] | None = None,
+    ) -> None:
+        """Fire-and-forget audit log emission on a successful mutation."""
+        if self._audit_client is None:
+            return
+        self._audit_client.log_in_background(
+            CreateAuditLogDTO(
+                tenant_id=tenant_id,
+                user_id=user_id,
+                action=action,
+                entity_type=entity_type,
+                entity_id=entity_id,
+                changes=changes,
+            )
+        )
 
     async def _require_membership_permission(
         self, tenant_id: TenantId, user_id: UserId, permission: str
@@ -99,8 +130,12 @@ class TenantService:
         if getattr(self._settings, "default_coa_seed", True):
             await self._repository.seed_default_coa(created.id)
 
-        await self._repository.write_audit_tenant_created(
-            tenant_id=created.id, user_id=owner_user_id
+        self._emit_audit(
+            tenant_id=created.id,
+            user_id=owner_user_id,
+            action="TENANT_CREATED",
+            entity_type="tenant",
+            entity_id=str(created.id),
         )
 
         return self._to_summary(created, role=TenantRole.OWNER.value)
@@ -212,6 +247,14 @@ class TenantService:
             updated_at=now,
         )
         created = await self._repository.add_user(tenant_user)
+        self._emit_audit(
+            tenant_id=tenant_id,
+            user_id=actor_user_id,
+            action="MEMBER_ADDED",
+            entity_type="tenant",
+            entity_id=str(tenant_id),
+            changes={"user_id": str(created.user_id), "role": target_role.value},
+        )
         return TenantUserResponse(
             id=str(created.id),
             tenant_id=str(created.tenant_id),
@@ -249,6 +292,18 @@ class TenantService:
             tenant_id, target_user_id, new_role.value
         )
         assert ok
+        self._emit_audit(
+            tenant_id=tenant_id,
+            user_id=actor_user_id,
+            action="ROLE_CHANGED",
+            entity_type="tenant",
+            entity_id=str(tenant_id),
+            changes={
+                "user_id": str(target_user_id),
+                "from": current.value,
+                "to": new_role.value,
+            },
+        )
         rows = await self._repository.list_tenant_members(tenant_id)
         for r in rows:
             if r.user_id == target_user_id:
@@ -276,6 +331,14 @@ class TenantService:
             raise ForbiddenError("Cannot remove the last owner from the tenant.")
 
         await self._repository.remove_user(tenant_id, target_user_id)
+        self._emit_audit(
+            tenant_id=tenant_id,
+            user_id=actor_user_id,
+            action="MEMBER_REMOVED",
+            entity_type="tenant",
+            entity_id=str(tenant_id),
+            changes={"user_id": str(target_user_id)},
+        )
 
     @staticmethod
     def _to_summary(tenant: Tenant, *, role: str) -> TenantSummaryResponse:

@@ -9,9 +9,13 @@ from fastapi.responses import JSONResponse
 from accounting_shared.database import create_engine, create_session_factory
 from accounting_shared.exceptions import register_exception_handlers
 from accounting_shared.logging import setup_logging
+from accounting_shared.middleware.audit_context import AuditContextMiddleware
 from accounting_shared.middleware.request_id import RequestIDMiddleware
 from accounting_shared.middleware.tenant_context import TenantContextMiddleware
 from ledger_service.deps import get_settings
+from ledger_service.modules.ledger.interfaces.api.reports_router import (
+    router as reports_router,
+)
 from ledger_service.modules.ledger.interfaces.api.router import router as ledger_router
 from ledger_service.modules.opening_balance.infrastructure.orm_registry import (
     register_opening_balance_orm_metadata,
@@ -48,6 +52,11 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.add_middleware(RequestIDMiddleware)
+    app.add_middleware(
+        AuditContextMiddleware,
+        jwt_secret=settings.jwt_secret,
+        jwt_algorithm=settings.jwt_algorithm,
+    )
     app.add_middleware(TenantContextMiddleware)
 
     register_exception_handlers(app)
@@ -66,6 +75,7 @@ def create_app() -> FastAPI:
 
     app.include_router(ledger_router, prefix="/ledger")
     app.include_router(opening_balance_router, prefix="/ledger")
+    app.include_router(reports_router, prefix="/ledger/reports")
 
     return app
 

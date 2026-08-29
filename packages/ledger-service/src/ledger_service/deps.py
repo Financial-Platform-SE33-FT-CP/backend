@@ -11,6 +11,7 @@ from fastapi.security import HTTPAuthorizationCredentials, HTTPBearer
 from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from accounting_shared.audit_client import AuditHttpClient
 from accounting_shared.database import get_session
 from accounting_shared.exceptions import (
     ForbiddenError,
@@ -23,7 +24,11 @@ from accounting_shared.http_internal import post_json
 from accounting_shared.middleware.tenant_context import get_current_tenant_id
 from accounting_shared.types import TenantId, UserId
 from ledger_service.config import LedgerSettings
+from ledger_service.modules.ledger.application.report_service import ReportService
 from ledger_service.modules.ledger.application.services import LedgerService
+from ledger_service.modules.ledger.infrastructure.report_repository import (
+    SqlAlchemyReportRepository,
+)
 from ledger_service.modules.ledger.infrastructure.repository import (
     SqlAlchemyAccountingPeriodRepository,
     SqlAlchemyJournalEntryRepository,
@@ -66,6 +71,12 @@ async def get_current_user_id(
         return UserId(uuid.UUID(str(sub)))
     except ValueError as e:
         raise UnauthorizedError("Not authenticated.") from e
+
+
+async def get_current_user_id_str(
+    user_id: UserId = Depends(get_current_user_id),
+) -> str:
+    return str(user_id)
 
 
 def require_tenant_id() -> TenantId:
@@ -150,9 +161,25 @@ async def get_async_session(request: Request) -> AsyncGenerator[AsyncSession, No
         yield session
 
 
+async def get_audit_client() -> AuditHttpClient:
+    settings = get_settings()
+    return AuditHttpClient(
+        audit_service_url=settings.audit_service_url,
+        internal_token=settings.audit_internal_api_token or settings.tenant_internal_api_token,
+    )
+
+
 async def get_ledger_service(
     session: AsyncSession = Depends(get_async_session),
+    audit_client: AuditHttpClient = Depends(get_audit_client),
 ) -> LedgerService:
     journal_repo = SqlAlchemyJournalEntryRepository(session)
     period_repo = SqlAlchemyAccountingPeriodRepository(session)
-    return LedgerService(journal_repo, period_repo)
+    return LedgerService(journal_repo, period_repo, audit_client=audit_client)
+
+
+async def get_report_service(
+    session: AsyncSession = Depends(get_async_session),
+) -> ReportService:
+    report_repo = SqlAlchemyReportRepository(session)
+    return ReportService(report_repo)

@@ -22,7 +22,6 @@ from tenant_service.modules.tenants.infrastructure.models import (  # noqa: F401
     TenantModel,
     TenantUserModel,
 )
-from audit_service.modules.audit.infrastructure.models import AuditLogModel  # noqa: F401
 
 
 JWT_SECRET = "us2-test-jwt-secret"
@@ -171,16 +170,6 @@ async def test_create_tenant_success(
             .all()
         )
         assert len(coa_count) == 24
-        logs = (
-            (await s.execute(select(AuditLogModel).where(AuditLogModel.tenant_id == tid)))
-            .scalars()
-            .all()
-        )
-        assert len(logs) == 1
-        assert logs[0].action == "TENANT_CREATED"
-        assert logs[0].entity_type == "tenant"
-        assert logs[0].entity_id == str(tid)
-        assert logs[0].user_id == uid
 
 
 @pytest.mark.asyncio
@@ -374,7 +363,6 @@ async def test_transaction_rollback_on_seed_failure(
         assert (await s.execute(select(TenantModel))).scalars().all() == []
         assert (await s.execute(select(TenantUserModel))).scalars().all() == []
         assert (await s.execute(select(AccountModel))).scalars().all() == []
-        assert (await s.execute(select(AuditLogModel))).scalars().all() == []
 
 
 @pytest.mark.asyncio

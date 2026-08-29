@@ -1,14 +1,35 @@
-"""Dependency injection helpers."""
+"""Dependency injection helpers for audit-service (JWT, tenant, delegated RBAC)."""
 
 from __future__ import annotations
 
+import uuid
 from collections.abc import AsyncGenerator
 from functools import lru_cache
 
-from fastapi import Request
+from fastapi import Depends, Request
+from fastapi.security import APIKeyHeader, HTTPAuthorizationCredentials, HTTPBearer
+from jose import JWTError, jwt
 from sqlalchemy.ext.asyncio import AsyncSession
 
+from accounting_shared.database import get_session
+from accounting_shared.exceptions import (
+    ForbiddenError,
+    NotFoundError,
+    ServiceUnavailableError,
+    UnauthorizedError,
+    ValidationError,
+)
+from accounting_shared.http_internal import post_json
+from accounting_shared.middleware.tenant_context import get_current_tenant_id
+from accounting_shared.types import TenantId, UserId
 from audit_service.config import AuditSettings
+from audit_service.modules.audit.application.services import AuditService
+from audit_service.modules.audit.infrastructure.repository import (
+    SqlAlchemyAuditLogRepository,
+)
+
+security_scheme = HTTPBearer(auto_error=False)
+internal_token_header = APIKeyHeader(name="X-Internal-Token", auto_error=False)
 
 
 @lru_cache
@@ -17,8 +38,127 @@ def get_settings() -> AuditSettings:
     return AuditSettings()
 
 
+async def get_access_token_payload(
+    credentials: HTTPAuthorizationCredentials | None = Depends(security_scheme),
+    settings: AuditSettings = Depends(get_settings),
+) -> dict[str, object]:
+    if credentials is None or credentials.scheme.lower() != "bearer":
+        raise UnauthorizedError("Not authenticated.")
+    try:
+        payload: dict[str, object] = jwt.decode(
+            credentials.credentials,
+            settings.jwt_secret,
+            algorithms=[settings.jwt_algorithm],
+        )
+        return payload
+    except JWTError as e:
+        raise UnauthorizedError("Not authenticated.") from e
+
+
+async def get_current_user_id(
+    payload: dict[str, object] = Depends(get_access_token_payload),
+) -> UserId:
+    if payload.get("type") != "access":
+        raise UnauthorizedError("Not authenticated.")
+    sub = payload.get("sub")
+    if not sub:
+        raise UnauthorizedError("Not authenticated.")
+    try:
+        return UserId(uuid.UUID(str(sub)))
+    except ValueError as e:
+        raise UnauthorizedError("Not authenticated.") from e
+
+
+def require_tenant_id() -> TenantId:
+    raw = get_current_tenant_id()
+    if raw is None:
+        raise ValidationError("X-Tenant-ID header is required.")
+    return TenantId(raw)
+
+
+async def authorize_via_tenant_service(
+    *,
+    settings: AuditSettings,
+    user_id: UserId,
+    tenant_id: TenantId,
+    permission: str,
+) -> None:
+    token = (settings.tenant_internal_api_token or "").strip()
+    if not token:
+        raise ServiceUnavailableError("RBAC is not configured for this service.")
+    base = (settings.tenant_service_url or "").strip().rstrip("/")
+    if not base:
+        raise ServiceUnavailableError("Tenant service URL is not configured.")
+    url = f"{base}/internal/authorization/check"
+    try:
+        status_code, data = await post_json(
+            url,
+            headers={"X-Internal-Token": token},
+            body={
+                "user_id": str(user_id),
+                "tenant_id": str(tenant_id),
+                "permission": permission,
+            },
+        )
+    except OSError as e:
+        raise ServiceUnavailableError("Unable to reach tenant authorization service.") from e
+    if status_code == 401:
+        raise ServiceUnavailableError("Tenant authorization service rejected the internal token.")
+    if status_code != 200:
+        detail = data if isinstance(data, str) else str(data)
+        raise ServiceUnavailableError(
+            f"Tenant authorization service returned HTTP {status_code}: {detail}"
+        )
+    if not isinstance(data, dict):
+        raise ServiceUnavailableError("Tenant authorization service returned an invalid response.")
+    if data.get("allowed") is True:
+        return
+    reason = data.get("reason")
+    if reason == "tenant_not_found":
+        raise NotFoundError("Tenant not found.")
+    if reason == "not_member":
+        raise ForbiddenError("Not a member of this tenant.")
+    raise ForbiddenError("You do not have permission for this action.")
+
+
+class RequireAuditPermission:
+    def __init__(self, permission: str) -> None:
+        self.permission = permission
+
+    async def __call__(
+        self,
+        tenant_id: TenantId = Depends(require_tenant_id),
+        user_id: UserId = Depends(get_current_user_id),
+        settings: AuditSettings = Depends(get_settings),
+    ) -> None:
+        await authorize_via_tenant_service(
+            settings=settings,
+            user_id=user_id,
+            tenant_id=tenant_id,
+            permission=self.permission,
+        )
+
+
+async def verify_internal_service_token(
+    token: str | None = Depends(internal_token_header),
+    settings: AuditSettings = Depends(get_settings),
+) -> None:
+    expected = (settings.internal_api_token or "").strip()
+    if not expected:
+        raise ServiceUnavailableError("Service temporarily unavailable.")
+    if token != expected:
+        raise UnauthorizedError("Not authenticated.")
+
+
 async def get_async_session(request: Request) -> AsyncGenerator[AsyncSession, None]:
     """Yield an AsyncSession from the app state session factory."""
     session_factory = request.app.state.session_factory
-    async with session_factory() as session:
+    async for session in get_session(session_factory):
         yield session
+
+
+async def get_audit_service(
+    session: AsyncSession = Depends(get_async_session),
+) -> AuditService:
+    repository = SqlAlchemyAuditLogRepository(session)
+    return AuditService(repository)

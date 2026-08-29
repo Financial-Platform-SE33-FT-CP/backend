@@ -6,6 +6,7 @@ from contextlib import asynccontextmanager
 import structlog
 from accounting_shared.exceptions import register_exception_handlers
 from accounting_shared.logging import setup_logging
+from accounting_shared.middleware.audit_context import AuditContextMiddleware
 from accounting_shared.middleware.request_id import RequestIDMiddleware
 from accounting_shared.middleware.tenant_context import TenantContextMiddleware
 from fastapi import FastAPI, Request
@@ -52,6 +53,11 @@ def create_app() -> FastAPI:
         allow_headers=["*"],
     )
     app.add_middleware(RequestIDMiddleware)
+    app.add_middleware(
+        AuditContextMiddleware,
+        jwt_secret=settings.jwt_secret,
+        jwt_algorithm=settings.jwt_algorithm,
+    )
     app.add_middleware(TenantContextMiddleware)
 
     app.include_router(portal_router)

@@ -59,4 +59,5 @@ Invoke-Migration "ledger-service" "ledger-service" (Join-Path $BackendRoot "pack
 Invoke-Migration "ar-ap-service" "ar-ap-service" (Join-Path $BackendRoot "packages\ar-ap-service\alembic")
 Invoke-Migration "audit-service" "audit-service" (Join-Path $BackendRoot "packages\audit-service\alembic")
 
+Invoke-Migration "billing-service" "billing-service" (Join-Path $BackendRoot "packages\billing-service\alembic")
 Write-Host "`nAll migrations completed." -ForegroundColor Cyan
